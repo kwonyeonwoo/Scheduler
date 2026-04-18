@@ -4,3 +4,8 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  NPM_FLAGS = "--version"
+
+# Netlify Build Image를 Xenial(구형)에서 최신으로 유도하는 설정
+[context.production]
+  environment = { NODE_VERSION = "20" }
