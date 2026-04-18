@@ -1,11 +1,6 @@
 [build]
-  # 빌드 전에 명시적으로 npm install을 수행하여 의존성을 확보합니다.
-  command = "npm install && npm run build"
+  command = "npm run build"
   publish = "out"
 
 [build.environment]
   NODE_VERSION = "20"
-
-# Next.js Runtime 플러그인이 정적 내보내기와 충돌할 경우를 대비해 설정을 최적화합니다.
-[[plugins]]
-  package = "@netlify/plugin-nextjs"

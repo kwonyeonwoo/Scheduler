@@ -85,7 +85,6 @@ export default function SchedulerPage() {
       const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const dayOfWeek = new Date(year, month, d).getDay();
       
-      // Force Number conversion to prevent string concatenation or undefined errors
       let hours = Number(state.exceptions[dateKey] !== undefined ? state.exceptions[dateKey] : state.defaults[dayOfWeek]) || 0;
       let start = state.startExceptions[dateKey] || state.startDefaults[dayOfWeek] || "09:00";
       let lunch = Number(state.lunchExceptions[dateKey] || state.lunchDefaults[dayOfWeek] || 1.0);
@@ -214,7 +213,7 @@ export default function SchedulerPage() {
                 <button onClick={() => setCurrentDate(new Date(year, month + 1))}>→</button>
               </div>
 
-              <div className="bg-slate-900/20 p-6 rounded-[2.5rem] border border-slate-800/50">
+              <div className="bg-slate-900/20 p-6 rounded-[2.5rem] border border-slate-800/50 shadow-inner">
                 <div className="grid grid-cols-7 mb-6">
                   {DAYS_KOREAN.map((d, idx) => (
                     <div key={d} className={`text-center text-[10px] font-black uppercase tracking-widest ${idx === 0 ? 'text-red-500/50' : idx === 6 ? 'text-blue-500/50' : 'text-slate-600'}`}>{d}</div>
@@ -243,7 +242,7 @@ export default function SchedulerPage() {
                                 {Number(d.hours).toFixed(1)}
                               </div>
                               <div className="text-[9px] text-slate-500 font-bold">{d.start} ~ {d.end}</div>
-                            </>
+                            </div>
                           )}
                         </>
                       )}
