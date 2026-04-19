@@ -1,0 +1,17 @@
+{
+  "name": "타임 키퍼 v2",
+  "short_name": "타임키퍼",
+  "description": "스마트 근무 스케줄러",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d1117",
+  "theme_color": "#0d1117",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/2088/2088617.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
