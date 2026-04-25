@@ -8,7 +8,7 @@ import {
   createUserWithEmailAndPassword, 
   signOut 
 } from 'firebase/auth';
-import { doc, onSnapshot, setDoc, collection, query, limit } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, collection, query, limit, getDocs } from 'firebase/firestore';
 
 // --- Constants ---
 const MAX_MONTHLY_HOURS = 80;
@@ -48,11 +48,28 @@ export default function SchedulerPage() {
     return () => unsub();
   }, []);
 
-  // 2. Data Sync
+  // 2. Data Sync & Auto Migration
   useEffect(() => {
     if (!user) return;
-    const unsub = onSnapshot(doc(db, "schedules", user.uid), (docSnap) => {
-      if (docSnap.exists()) setState(prev => ({ ...prev, ...docSnap.data() }));
+    const unsub = onSnapshot(doc(db, "schedules", user.uid), async (docSnap) => {
+      if (docSnap.exists()) {
+        setState(prev => ({ ...prev, ...docSnap.data() }));
+      } else if (user.email === "yeonyoo5969@gmail.com") {
+        // 새 계정(복구 대상) 로그인 시 기존 '권연우' 데이터 검색 및 자동 이전
+        try {
+          const qs = await getDocs(collection(db, "schedules"));
+          qs.forEach(async (d) => {
+            if (d.data().name === "권연우" && d.id !== user.uid) {
+              const oldData = d.data();
+              await setDoc(doc(db, "schedules", user.uid), {
+                ...oldData,
+                email: user.email,
+                updatedAt: new Date().toISOString()
+              });
+            }
+          });
+        } catch (e) { console.error("Migration Error:", e); }
+      }
     });
     return () => unsub();
   }, [user]);
