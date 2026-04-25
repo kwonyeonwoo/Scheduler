@@ -303,37 +303,58 @@ export default function SchedulerPage() {
             </main>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {teamSchedules.map((m) => {
-              // Calculate monthly total for team members
-              const lastDay = new Date(year, month + 1, 0).getDate();
-              let total = 0;
-              for (let d = 1; d <= lastDay; d++) {
-                const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                const dayOfWeek = new Date(year, month, d).getDay();
-                const h = Number(m.exceptions?.[dateKey] !== undefined ? m.exceptions[dateKey] : (m.defaults?.[dayOfWeek] || 0));
-                total += h;
-              }
-              const cappedTotal = Math.min(MAX_MONTHLY_HOURS, total);
-              
-              return (
-                <div key={m.id} className="bg-slate-900/40 p-6 rounded-3xl border border-slate-800 space-y-4 hover:border-blue-500/50 transition-all shadow-xl">
-                  <div className="flex justify-between items-center font-black">
-                    <span className="text-slate-200">{m.name || m.id.substring(0, 5)}</span>
-                    <span className="text-[9px] text-slate-500 uppercase tracking-tighter">₩{(cappedTotal * HOURLY_WAGE).toLocaleString()}</span>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-[10px] font-black text-blue-400/80 uppercase">
-                      <span>{total.toFixed(1)}h {total > 80 && <span className="text-emerald-500">(Capped)</span>}</span>
-                      <span>{Math.round((cappedTotal / 80) * 100)}%</span>
+          <div className="bg-slate-900/20 p-6 rounded-[2.5rem] border border-slate-800/50 shadow-inner overflow-hidden">
+            <div className="grid grid-cols-7 mb-6">
+              {DAYS_KOREAN.map((d, idx) => (
+                <div key={d} className={`text-center text-[10px] font-black uppercase tracking-widest ${idx === 0 ? 'text-red-500/50' : idx === 6 ? 'text-blue-500/50' : 'text-slate-600'}`}>{d}</div>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
+              {calendarData.days.map((d, i) => {
+                if (!d) return <div key={i} className="aspect-square bg-transparent border-transparent" />;
+                
+                // 해당 날짜에 근무하는 팀원들 추출
+                const workingMembers = teamSchedules.filter(m => {
+                  const h = Number(m.exceptions?.[d.dateKey] !== undefined ? m.exceptions[d.dateKey] : (m.defaults?.[d.dayOfWeek] || 0));
+                  return h > 0;
+                }).map(m => {
+                  const h = Number(m.exceptions?.[d.dateKey] !== undefined ? m.exceptions[d.dateKey] : (m.defaults?.[d.dayOfWeek] || 0));
+                  const start = m.startExceptions?.[d.dateKey] || m.startDefaults?.[d.dayOfWeek] || "09:00";
+                  const lunch = Number(m.lunchExceptions?.[d.dateKey] || m.lunchDefaults?.[d.dayOfWeek] || 1.0);
+                  
+                  // 종료 시간 계산
+                  const [sh, sm] = start.split(':').map(Number);
+                  const totalMin = sh * 60 + sm + (h + lunch) * 60;
+                  const end = `${String(Math.floor(totalMin / 60) % 24).padStart(2, '0')}:${String(totalMin % 60).padStart(2, '0')}`;
+                  
+                  return { name: m.name, start, end };
+                });
+
+                return (
+                  <div key={i} className="min-h-[120px] md:aspect-square rounded-[1.5rem] border bg-slate-900/40 border-slate-800/50 p-3 flex flex-col gap-2 relative overflow-hidden hover:border-slate-700 transition-all">
+                    <span className={`text-[10px] font-black ${d.dayOfWeek === 0 ? 'text-red-500/60' : d.dayOfWeek === 6 ? 'text-blue-500/60' : 'text-slate-600'}`}>{d.day}</span>
+                    <div className="flex flex-col gap-1 overflow-y-auto custom-scrollbar pr-1">
+                      {workingMembers.length > 0 ? (
+                        workingMembers.map((m, idx) => (
+                          <div key={idx} className="bg-slate-800/50 rounded-lg p-1.5 border border-slate-700/50">
+                            <div className="flex justify-between items-center mb-0.5">
+                              <span className="text-[10px] font-black text-blue-400 truncate">{m.name}</span>
+                            </div>
+                            <div className="text-[8px] font-bold text-slate-500 leading-none">
+                              {m.start} ~ {m.end}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="flex-1 flex items-center justify-center">
+                          <span className="text-[8px] font-bold text-slate-800 uppercase tracking-tighter">No Schedule</span>
+                        </div>
+                      )}
                     </div>
-                    <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                      <div className={`h-full transition-all ${total >= 80 ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${(cappedTotal / 80) * 100}%` }} />
-                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         )}
 
