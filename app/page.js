@@ -64,8 +64,10 @@ export default function SchedulerPage() {
       const s = [];
       qs.forEach((doc) => {
         const data = doc.data();
-        // 이름이 있고, 데이터가 유효한 경우만 팀 리스트에 추가
-        if (data.name && (data.updatedAt || data.exceptions || data.defaults)) {
+        const isTestAccount = data.name?.toLowerCase().includes('test') || doc.id.toLowerCase().includes('test');
+        
+        // 이름이 있고, 테스트 계정이 아니며, 데이터가 유효한 경우만 팀 리스트에 추가
+        if (data.name && !isTestAccount && (data.updatedAt || data.exceptions || data.defaults)) {
           s.push({ id: doc.id, ...data });
         }
       });
