@@ -13,5 +13,14 @@
       "type": "image/png",
       "purpose": "any maskable"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "Widget View",
+      "short_name": "Widget",
+      "description": "Check monthly schedule widget",
+      "url": "/widget",
+      "icons": [{ "src": "https://cdn-icons-png.flaticon.com/512/2088/2088617.png", "sizes": "512x512" }]
+    }
   ]
 }

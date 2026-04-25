@@ -72,11 +72,15 @@ export default function SchedulerPage() {
   const handleAuth = async (e) => {
     e.preventDefault();
     setAuthError('');
+    
+    // 이메일 형식이 아니면(아이디만 입력하면) 자동으로 도메인 추가
+    const finalEmail = email.includes('@') ? email : `${email}@scheduler.com`;
+    
     try {
       if (authMode === 'login') {
-        await signInWithEmailAndPassword(auth, email, password);
+        await signInWithEmailAndPassword(auth, finalEmail, password);
       } else {
-        await createUserWithEmailAndPassword(auth, email, password);
+        await createUserWithEmailAndPassword(auth, finalEmail, password);
       }
     } catch (err) {
       setAuthError(err.message.includes('auth/user-not-found') ? '존재하지 않는 계정입니다.' : 
@@ -110,17 +114,22 @@ export default function SchedulerPage() {
     for (let d = 1; d <= lastDay.getDate(); d++) {
       const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const dayOfWeek = new Date(year, month, d).getDay();
-      let hours = Number(state.exceptions[dateKey] !== undefined ? state.exceptions[dateKey] : state.defaults[dayOfWeek]) || 0;
+      
+      const scheduledHours = Number(state.exceptions[dateKey] !== undefined ? state.exceptions[dateKey] : state.defaults[dayOfWeek]) || 0;
+      let effectiveHours = scheduledHours;
+      let type = state.exceptions[dateKey] !== undefined ? (scheduledHours === 0 ? 'holiday' : 'exception') : 'default';
+      
+      if (totalAccHours + scheduledHours > MAX_MONTHLY_HOURS) {
+        effectiveHours = Math.max(0, MAX_MONTHLY_HOURS - totalAccHours);
+        if (scheduledHours > 0) type = 'capped';
+      }
+      
       let start = state.startExceptions[dateKey] || state.startDefaults[dayOfWeek] || "09:00";
       let lunch = Number(state.lunchExceptions[dateKey] || state.lunchDefaults[dayOfWeek] || 1.0);
-      let type = state.exceptions[dateKey] !== undefined ? (hours === 0 ? 'holiday' : 'exception') : 'default';
-      if (totalAccHours + hours > MAX_MONTHLY_HOURS) {
-        hours = Math.max(0, MAX_MONTHLY_HOURS - totalAccHours);
-        type = 'capped';
-      }
-      const end = getEndTime(start, hours, lunch);
-      totalAccHours += hours;
-      days.push({ day: d, dateKey, hours, start, end, lunch, type, dayOfWeek });
+      const end = getEndTime(start, scheduledHours, lunch);
+      
+      totalAccHours += effectiveHours;
+      days.push({ day: d, dateKey, hours: scheduledHours, effectiveHours, start, end, lunch, type, dayOfWeek });
     }
     return { days, totalAccHours, totalWage: totalAccHours * HOURLY_WAGE };
   }, [year, month, state]);
@@ -253,9 +262,9 @@ export default function SchedulerPage() {
 
             <main className="lg:col-span-9 space-y-4">
               <div className="flex justify-center items-center gap-8 mb-2">
-                <button onClick={() => setCurrentDate(new Date(year, month - 1))} className="text-slate-600 hover:text-white transition-all text-xl">←</button>
+                <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))} className="text-slate-600 hover:text-white transition-all text-xl">←</button>
                 <h2 className="text-2xl font-black tracking-tighter text-slate-100">{year}년 {month + 1}월</h2>
-                <button onClick={() => setCurrentDate(new Date(year, month + 1))} className="text-slate-600 hover:text-white transition-all text-xl">→</button>
+                <button onClick={() => setCurrentDate(new Date(year, month + 1, 1))} className="text-slate-600 hover:text-white transition-all text-xl">→</button>
               </div>
 
               <div className="bg-slate-900/20 p-6 rounded-[2.5rem] border border-slate-800/50 shadow-inner">
@@ -287,17 +296,30 @@ export default function SchedulerPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {teamSchedules.map((m) => {
-              const total = Number(Object.values(m.exceptions || {}).reduce((a, b) => a + (Number(b) || 0), 0)) || 0;
+              // Calculate monthly total for team members
+              const lastDay = new Date(year, month + 1, 0).getDate();
+              let total = 0;
+              for (let d = 1; d <= lastDay; d++) {
+                const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const dayOfWeek = new Date(year, month, d).getDay();
+                const h = Number(m.exceptions?.[dateKey] !== undefined ? m.exceptions[dateKey] : (m.defaults?.[dayOfWeek] || 0));
+                total += h;
+              }
+              const cappedTotal = Math.min(MAX_MONTHLY_HOURS, total);
+              
               return (
                 <div key={m.id} className="bg-slate-900/40 p-6 rounded-3xl border border-slate-800 space-y-4 hover:border-blue-500/50 transition-all shadow-xl">
                   <div className="flex justify-between items-center font-black">
-                    <span className="text-slate-200">{m.name}</span>
-                    <span className="text-[9px] text-slate-500 uppercase tracking-tighter">₩{(total * HOURLY_WAGE).toLocaleString()}</span>
+                    <span className="text-slate-200">{m.name || m.id.substring(0, 5)}</span>
+                    <span className="text-[9px] text-slate-500 uppercase tracking-tighter">₩{(cappedTotal * HOURLY_WAGE).toLocaleString()}</span>
                   </div>
                   <div className="space-y-2">
-                    <div className="flex justify-between text-[10px] font-black text-blue-400/80 uppercase"><span>{total.toFixed(1)}h</span><span>{Math.round((total/80)*100)}%</span></div>
+                    <div className="flex justify-between text-[10px] font-black text-blue-400/80 uppercase">
+                      <span>{total.toFixed(1)}h {total > 80 && <span className="text-emerald-500">(Capped)</span>}</span>
+                      <span>{Math.round((cappedTotal / 80) * 100)}%</span>
+                    </div>
                     <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                      <div className="h-full bg-blue-500 transition-all" style={{ width: `${(total / 80) * 100}%` }} />
+                      <div className={`h-full transition-all ${total >= 80 ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${(cappedTotal / 80) * 100}%` }} />
                     </div>
                   </div>
                 </div>
