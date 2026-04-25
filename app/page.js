@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { auth, db } from './lib/firebase';
+import { getHoliday } from './lib/holidays';
 import { 
   onAuthStateChanged, 
   signInWithEmailAndPassword, 
@@ -123,10 +124,17 @@ export default function SchedulerPage() {
     for (let d = 1; d <= lastDay.getDate(); d++) {
       const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const dayOfWeek = new Date(year, month, d).getDay();
+      const holidayName = getHoliday(dateKey);
       
-      const scheduledHours = Number(state.exceptions[dateKey] !== undefined ? state.exceptions[dateKey] : state.defaults[dayOfWeek]) || 0;
+      let scheduledHours = Number(state.exceptions[dateKey] !== undefined ? state.exceptions[dateKey] : state.defaults[dayOfWeek]) || 0;
+      
+      // 공휴일이면 자동으로 휴무 처리 (단, 사용자가 예외적으로 근무를 설정하지 않은 경우)
+      if (holidayName && state.exceptions[dateKey] === undefined) {
+        scheduledHours = 0;
+      }
+
       let effectiveHours = scheduledHours;
-      let type = state.exceptions[dateKey] !== undefined ? (scheduledHours === 0 ? 'holiday' : 'exception') : 'default';
+      let type = state.exceptions[dateKey] !== undefined ? (scheduledHours === 0 ? 'holiday' : 'exception') : (scheduledHours === 0 && holidayName ? 'holiday' : 'default');
       
       if (totalAccHours + scheduledHours > MAX_MONTHLY_HOURS) {
         effectiveHours = Math.max(0, MAX_MONTHLY_HOURS - totalAccHours);
@@ -138,7 +146,7 @@ export default function SchedulerPage() {
       const end = getEndTime(start, scheduledHours, lunch);
       
       totalAccHours += effectiveHours;
-      days.push({ day: d, dateKey, hours: scheduledHours, effectiveHours, start, end, lunch, type, dayOfWeek });
+      days.push({ day: d, dateKey, hours: scheduledHours, effectiveHours, start, end, lunch, type, dayOfWeek, holidayName });
     }
     return { days, totalAccHours, totalWage: totalAccHours * HOURLY_WAGE };
   }, [year, month, state]);
@@ -284,15 +292,20 @@ export default function SchedulerPage() {
                 </div>
                 <div className="grid grid-cols-7 gap-3">
                   {calendarData.days.map((d, i) => (
-                    <div key={i} onClick={() => d && setSelectedDay(d)} className={`aspect-square rounded-[1.5rem] border transition-all relative flex flex-col items-center justify-center ${!d ? 'bg-transparent border-transparent' : 'bg-slate-900/40 border-slate-800/50 hover:border-blue-500/50 hover:bg-slate-800/60 cursor-pointer'} ${d?.type === 'holiday' ? 'opacity-20' : ''} ${d?.type === 'capped' ? 'ring-2 ring-emerald-500/30 border-emerald-500/50' : ''}`}>
+                    <div key={i} onClick={() => d && setSelectedDay(d)} className={`aspect-square rounded-[1.5rem] border transition-all relative flex flex-col items-center justify-center ${!d ? 'bg-transparent border-transparent' : 'bg-slate-900/40 border-slate-800/50 hover:border-blue-500/50 hover:bg-slate-800/60 cursor-pointer'} ${d?.type === 'holiday' ? 'opacity-40' : ''} ${d?.type === 'capped' ? 'ring-2 ring-emerald-500/30 border-emerald-500/50' : ''}`}>
                       {d && (
                         <>
-                          <span className={`absolute top-3 left-4 text-[11px] font-black ${d.dayOfWeek === 0 ? 'text-red-500/60' : d.dayOfWeek === 6 ? 'text-blue-500/60' : 'text-slate-500'}`}>{d.day}</span>
-                          {d.hours > 0 && (
+                          <span className={`absolute top-3 left-4 text-[11px] font-black ${d.holidayName || d.dayOfWeek === 0 ? 'text-red-500/80' : d.dayOfWeek === 6 ? 'text-blue-500/60' : 'text-slate-500'}`}>{d.day}</span>
+                          {d.holidayName && (
+                            <span className="absolute top-3 right-4 text-[8px] font-black text-red-500/60 truncate max-w-[40px]">{d.holidayName}</span>
+                          )}
+                          {d.hours > 0 ? (
                             <div className="text-center">
                               <div className={`text-sm md:text-lg font-black ${d.type === 'default' ? 'text-blue-400' : d.type === 'exception' ? 'text-purple-400' : 'text-emerald-400'}`}>{Number(d.hours).toFixed(1)}</div>
                               <div className="text-[9px] text-slate-600 font-bold">{d.start} ~ {d.end}</div>
                             </div>
+                          ) : (
+                            d.holidayName && <div className="text-[10px] font-black text-red-500/40 uppercase tracking-tighter mt-4">Holiday</div>
                           )}
                         </>
                       )}
