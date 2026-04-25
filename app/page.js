@@ -176,8 +176,8 @@ export default function SchedulerPage() {
           
           <form onSubmit={handleAuth} className="space-y-4">
             <div className="space-y-1">
-              <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest px-2">Email Address</label>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold" placeholder="example@email.com" />
+              <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest px-2">ID (or Email)</label>
+              <input type="text" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold" placeholder="아이디를 입력하세요" />
             </div>
             <div className="space-y-1">
               <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest px-2">Password</label>
