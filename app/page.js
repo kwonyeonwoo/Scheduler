@@ -62,7 +62,14 @@ export default function SchedulerPage() {
     const q = query(collection(db, "schedules"), limit(50));
     const unsub = onSnapshot(q, (qs) => {
       const s = [];
-      qs.forEach((doc) => s.push({ id: doc.id, ...doc.data() }));
+      qs.forEach((doc) => {
+        const data = doc.data();
+        // 이름이 있고, 데이터가 유효한 경우만 팀 리스트에 추가
+        if (data.name && (data.updatedAt || data.exceptions || data.defaults)) {
+          s.push({ id: doc.id, ...data });
+        }
+      });
+      // 본인 제외 혹은 정렬 (선택 사항)
       setTeamSchedules(s);
     });
     return () => unsub();
