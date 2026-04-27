@@ -54,7 +54,10 @@ export default function SchedulerPage() {
     if (!user) return;
     const docId = user.email === 'yeonyoo5969@gmail.com' ? 'yeonyoo5969@gmail.com' : user.uid;
     const unsub = onSnapshot(doc(db, "schedules", docId), (docSnap) => {
-      if (docSnap.exists()) setState(prev => ({ ...prev, ...docSnap.data() }));
+      // 로컬에서 쓰기 작업 중(Pending)일 때는 서버 업데이트를 무시하여 튕김 방지
+      if (docSnap.exists() && !docSnap.metadata.hasPendingWrites) {
+        setState(prev => ({ ...prev, ...docSnap.data() }));
+      }
     });
     return () => unsub();
   }, [user]);
@@ -150,8 +153,11 @@ export default function SchedulerPage() {
     return { days, totalAccHours, totalWage: Math.min(totalAccHours, MAX_MONTHLY_HOURS) * HOURLY_WAGE };
   }, [currentDate, state]);
 
-  // --- 80시간 한도 체크 및 자동 조정 함수 ---
+  // --- 80시간 한도 및 일별 8시간 제한 체크 함수 ---
   const getAdjustedHours = (dateKey, targetHours) => {
+    // 1. 일별 최소 0, 최대 8시간 제한 (사용자 입력값 즉시 클램핑)
+    let dailyClamped = Math.max(0, Math.min(8, Number(targetHours) || 0));
+    
     const [y, m, d_str] = dateKey.split('-').map(Number);
     const lastDayOfMonth = new Date(y, m, 0).getDate();
     let otherDaysTotal = 0;
@@ -169,12 +175,9 @@ export default function SchedulerPage() {
       if (otherDaysTotal > MAX_MONTHLY_HOURS) otherDaysTotal = MAX_MONTHLY_HOURS;
     }
 
-    const remainingLimit = Math.max(0, MAX_MONTHLY_HOURS - otherDaysTotal);
-    if (targetHours > remainingLimit) {
-      alert(`월 80시간 한도를 초과하여 근로시간이 ${targetHours}h에서 ${remainingLimit}h로 자동 조정되었습니다.`);
-      return remainingLimit;
-    }
-    return targetHours;
+    const remainingMonthlyLimit = Math.max(0, MAX_MONTHLY_HOURS - otherDaysTotal);
+    // 2. 월간 80시간 한도 내에서 최종 반환 (일별 8시간 제한된 값 중에서 남은 월 한도만큼만 허용)
+    return Math.min(dailyClamped, remainingMonthlyLimit);
   };
 
   // 5. App Actions
@@ -260,12 +263,10 @@ export default function SchedulerPage() {
               <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400 tracking-tight">TIME KEEPER</h1>
               <button onClick={handleLogout} className="text-[10px] font-black bg-slate-800 px-2 py-1 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-400/10 transition-all uppercase tracking-tighter">Logout</button>
             </div>
-            <input 
-              value={state.name} 
-              placeholder="이름을 입력하세요"
-              onChange={(e) => saveState({ name: e.target.value })}
-              className="bg-transparent border-none text-slate-400 focus:ring-0 p-0 text-sm w-40 hover:text-slate-200 transition-colors font-bold"
-            />
+            <div className="flex items-center gap-2 text-slate-400 font-bold text-sm">
+              <span className="text-[9px] font-black bg-blue-500/10 text-blue-500 px-1.5 py-0.5 rounded uppercase tracking-tighter border border-blue-500/20">ID</span>
+              {user.email}
+            </div>
           </div>
           
           <div className="flex flex-col justify-center space-y-3">
@@ -302,7 +303,15 @@ export default function SchedulerPage() {
                   {DAYS_KOREAN.map((day, idx) => (
                     <div key={day} className="flex items-center justify-between">
                       <span className={`text-xs font-bold ${idx === 0 ? 'text-red-500/70' : idx === 6 ? 'text-blue-500/70' : 'text-slate-500'}`}>{day}</span>
-                      <input type="number" step="0.5" value={state.defaults[idx]} onChange={(e) => saveState({ defaults: { ...state.defaults, [idx]: e.target.value }})} className="bg-slate-800/50 border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] w-14 text-center focus:border-blue-500 outline-none font-bold" />
+                    <input type="number" step="0.5" min="0" max="8" value={state.defaults[idx]} onChange={(e) => {
+                      const rawVal = e.target.value;
+                      const val = Number(rawVal);
+                      if (!isNaN(val)) {
+                        // 0~8 범위로 제한하여 저장
+                        const clamped = Math.max(0, Math.min(8, val));
+                        saveState({ defaults: { ...state.defaults, [idx]: rawVal }});
+                      }
+                    }} className="bg-slate-800/50 border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] w-14 text-center focus:border-blue-500 outline-none font-bold" />
                       </div>
                       ))}
                       </div>
@@ -331,13 +340,25 @@ export default function SchedulerPage() {
                           {d.holidayName && (
                             <span className="absolute top-3 right-4 text-[8px] font-black text-red-500/60 truncate max-w-[40px]">{d.holidayName}</span>
                           )}
-                          {d.hours > 0 ? (
+                          {d.effectiveHours > 0 ? (
                             <div className="text-center">
-                              <div className={`text-sm md:text-lg font-black ${d.type === 'default' ? 'text-blue-400' : d.type === 'exception' ? 'text-purple-400' : 'text-emerald-400'}`}>{Number(d.hours).toFixed(1)}</div>
+                              <div className={`text-sm md:text-lg font-black ${d.type === 'default' ? 'text-blue-400' : d.type === 'exception' ? 'text-purple-400' : 'text-emerald-400'}`}>
+                                {Number(d.effectiveHours).toFixed(1)}
+                              </div>
+                              {d.effectiveHours < d.hours && (
+                                <div className="text-[8px] font-black text-amber-500 uppercase tracking-tighter leading-none mb-1">Adjusted</div>
+                              )}
                               <div className="text-[9px] text-slate-600 font-bold">{d.start} ~ {d.end}</div>
                             </div>
                           ) : (
-                            d.holidayName && <div className="text-[10px] font-black text-red-500/40 uppercase tracking-tighter mt-4">Holiday</div>
+                            d.hours > 0 ? (
+                              <div className="text-center opacity-40">
+                                <div className="text-xs font-black text-red-500 uppercase tracking-tighter">Limit</div>
+                                <div className="text-[8px] text-slate-700 font-bold line-through">{d.hours.toFixed(1)}h</div>
+                              </div>
+                            ) : (
+                              d.holidayName && <div className="text-[10px] font-black text-red-500/40 uppercase tracking-tighter mt-4">Holiday</div>
+                            )
                           )}
                         </>
                       )}
@@ -412,45 +433,21 @@ export default function SchedulerPage() {
                       <p className="text-slate-500 font-bold">{selectedDay.dateKey} ({DAYS_KOREAN[selectedDay.dayOfWeek]})</p>
                       </div>
                       <form onSubmit={(e) => {
-                      e.preventDefault();
-                      const fd = new FormData(e.currentTarget);
-                      let h = fd.get('type') === 'off' ? 0 : Number(fd.get('hours')) || 0;
+                        e.preventDefault();
+                        const fd = new FormData(e.currentTarget);
+                        let inputH = fd.get('type') === 'off' ? 0 : Number(fd.get('hours')) || 0;
 
-                      // --- 80시간 한도 자동 조정 로직 ---
-                      // 1. 현재 수정 중인 날짜를 제외한 한 달간의 총 근로시간 계산
-                      let otherDaysHours = 0;
-                      const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
-                      for (let d = 1; d <= lastDayOfMonth; d++) {
-                      const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                      if (dateKey === selectedDay.dateKey) continue; // 현재 선택된 날짜는 제외
+                        // --- 80시간 한도 자동 조정 로직 적용 ---
+                        const finalH = getAdjustedHours(selectedDay.dateKey, inputH);
+                        // --------------------------------------
 
-                      const dayOfWeek = new Date(year, month, d).getDay();
-                      const holidayName = getHoliday(dateKey);
-                      let hoursOnDay = Number(state.exceptions[dateKey] !== undefined ? state.exceptions[dateKey] : state.defaults[dayOfWeek]) || 0;
-
-                      // 공휴일 기본값(0) 적용
-                      if (holidayName && state.exceptions[dateKey] === undefined) hoursOnDay = 0;
-
-                      otherDaysHours += hoursOnDay;
-                      }
-
-                      // 2. 남은 한도 계산 및 시간 자동 조정
-                      const remainingLimit = Math.max(0, MAX_MONTHLY_HOURS - otherDaysHours);
-                      if (h > remainingLimit) {
-                      const originalH = h;
-                      h = remainingLimit; // 한도에 맞게 조정
-                      alert(`월 80시간 한도를 초과하여 근로시간이 ${originalH}h에서 ${h}h로 자동 조정되었습니다.`);
-                      }
-                      // -----------------------------
-
-                      saveState({
-                      exceptions: { ...state.exceptions, [selectedDay.dateKey]: h },
-                      startExceptions: { ...state.startExceptions, [selectedDay.dateKey]: fd.get('start') },
-                      lunchExceptions: { ...state.lunchExceptions, [selectedDay.dateKey]: fd.get('lunch') }
-                      });
-                      setSelectedDay(null);
+                        saveState({
+                          exceptions: { ...state.exceptions, [selectedDay.dateKey]: finalH },
+                          startExceptions: { ...state.startExceptions, [selectedDay.dateKey]: fd.get('start') },
+                          lunchExceptions: { ...state.lunchExceptions, [selectedDay.dateKey]: fd.get('lunch') }
+                        });
+                        setSelectedDay(null);
                       }} className="space-y-6">
-
                 <div className="flex gap-2 p-1.5 bg-slate-900 rounded-2xl border border-slate-800">
                   <label className="flex-1"><input type="radio" name="type" value="work" defaultChecked={selectedDay.hours > 0} className="peer hidden" /><div className="text-center py-2.5 rounded-xl text-xs font-black cursor-pointer peer-checked:bg-blue-600 peer-checked:text-white text-slate-600 transition-all">근무</div></label>
                   <label className="flex-1"><input type="radio" name="type" value="off" defaultChecked={selectedDay.hours === 0} className="peer hidden" /><div className="text-center py-2.5 rounded-xl text-xs font-black cursor-pointer peer-checked:bg-red-600 peer-checked:text-white text-slate-600 transition-all">휴무</div></label>
