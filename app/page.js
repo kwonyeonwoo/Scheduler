@@ -52,7 +52,8 @@ export default function SchedulerPage() {
   // 2. Data Sync
   useEffect(() => {
     if (!user) return;
-    const unsub = onSnapshot(doc(db, "schedules", user.uid), (docSnap) => {
+    const docId = user.email === 'yeonyoo5969@gmail.com' ? 'yeonyoo5969@gmail.com' : user.uid;
+    const unsub = onSnapshot(doc(db, "schedules", docId), (docSnap) => {
       if (docSnap.exists()) setState(prev => ({ ...prev, ...docSnap.data() }));
     });
     return () => unsub();
@@ -171,8 +172,9 @@ export default function SchedulerPage() {
     if (!user) return;
     setIsSyncing(true);
     const nextState = { ...state, ...updates };
+    const docId = user.email === 'yeonyoo5969@gmail.com' ? 'yeonyoo5969@gmail.com' : user.uid;
     try {
-      await setDoc(doc(db, "schedules", user.uid), {
+      await setDoc(doc(db, "schedules", docId), {
         ...nextState,
         name: nextState.name || user.email.split('@')[0],
         updatedAt: new Date().toISOString()
