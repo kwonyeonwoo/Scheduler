@@ -171,16 +171,21 @@ export default function SchedulerPage() {
   const saveState = async (updates) => {
     if (!user) return;
     setIsSyncing(true);
-    const nextState = { ...state, ...updates };
-    const docId = user.email === 'yeonyoo5969@gmail.com' ? 'yeonyoo5969@gmail.com' : user.uid;
-    try {
-      await setDoc(doc(db, "schedules", docId), {
-        ...nextState,
-        name: nextState.name || user.email.split('@')[0],
+    
+    // 즉시 로컬 상태 업데이트하여 UI 반응성 확보
+    setState(prev => {
+      const next = { ...prev, ...updates };
+      const docId = user.email === 'yeonyoo5969@gmail.com' ? 'yeonyoo5969@gmail.com' : user.uid;
+      
+      // 백그라운드에서 Firebase 저장
+      setDoc(doc(db, "schedules", docId), {
+        ...next,
+        name: next.name || user.email.split('@')[0],
         updatedAt: new Date().toISOString()
-      });
-    } catch (e) { console.error(e); }
-    finally { setIsSyncing(false); }
+      }, { merge: true }).catch(console.error).finally(() => setIsSyncing(false));
+      
+      return next;
+    });
   };
 
   // --- Render Login Screen ---
@@ -272,29 +277,29 @@ export default function SchedulerPage() {
                   {DAYS_KOREAN.map((day, idx) => (
                     <div key={day} className="flex items-center justify-between">
                       <span className={`text-xs font-bold ${idx === 0 ? 'text-red-500/70' : idx === 6 ? 'text-blue-500/70' : 'text-slate-500'}`}>{day}</span>
-                      <input type="number" step="0.5" value={state.defaults[idx]} onChange={(e) => saveState({ defaults: { ...state.defaults, [idx]: Number(e.target.value) || 0 }})} className="bg-slate-800/50 border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] w-14 text-center focus:border-blue-500 outline-none font-bold" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </aside>
+                      <input type="number" step="0.5" value={state.defaults[idx]} onChange={(e) => saveState({ defaults: { ...state.defaults, [idx]: e.target.value }})} className="bg-slate-800/50 border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] w-14 text-center focus:border-blue-500 outline-none font-bold" />
+                      </div>
+                      ))}
+                      </div>
+                      </div>
+                      </aside>
 
-            <main className="lg:col-span-9 space-y-4">
-              <div className="flex justify-center items-center gap-8 mb-2">
-                <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))} className="text-slate-600 hover:text-white transition-all text-xl">←</button>
-                <h2 className="text-2xl font-black tracking-tighter text-slate-100">{year}년 {month + 1}월</h2>
-                <button onClick={() => setCurrentDate(new Date(year, month + 1, 1))} className="text-slate-600 hover:text-white transition-all text-xl">→</button>
-              </div>
+                      <main className="lg:col-span-9 space-y-4">
+                      <div className="flex justify-center items-center gap-8 mb-2">
+                      <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))} className="text-slate-600 hover:text-white transition-all text-xl">←</button>
+                      <h2 className="text-2xl font-black tracking-tighter text-slate-100">{year}년 {month + 1}월</h2>
+                      <button onClick={() => setCurrentDate(new Date(year, month + 1, 1))} className="text-slate-600 hover:text-white transition-all text-xl">→</button>
+                      </div>
 
-              <div className="bg-slate-900/20 p-6 rounded-[2.5rem] border border-slate-800/50 shadow-inner">
-                <div className="grid grid-cols-7 mb-6">
-                  {DAYS_KOREAN.map((d, idx) => (
-                    <div key={d} className={`text-center text-[10px] font-black uppercase tracking-widest ${idx === 0 ? 'text-red-500/50' : idx === 6 ? 'text-blue-500/50' : 'text-slate-600'}`}>{d}</div>
-                  ))}
-                </div>
-                <div className="grid grid-cols-7 gap-3">
-                  {calendarData.days.map((d, i) => (
-                    <div key={i} onClick={() => d && setSelectedDay(d)} className={`aspect-square rounded-[1.5rem] border transition-all relative flex flex-col items-center justify-center ${!d ? 'bg-transparent border-transparent' : 'bg-slate-900/40 border-slate-800/50 hover:border-blue-500/50 hover:bg-slate-800/60 cursor-pointer'} ${d?.type === 'holiday' ? 'opacity-40' : ''} ${d?.type === 'capped' ? 'ring-2 ring-emerald-500/30 border-emerald-500/50' : ''}`}>
+                      <div className="bg-slate-900/20 p-6 rounded-[2.5rem] border border-slate-800/50 shadow-inner">
+                      <div className="grid grid-cols-7 mb-6">
+                      {DAYS_KOREAN.map((d, idx) => (
+                      <div key={d} className={`text-center text-[10px] font-black uppercase tracking-widest ${idx === 0 ? 'text-red-500/50' : idx === 6 ? 'text-blue-500/50' : 'text-slate-600'}`}>{d}</div>
+                      ))}
+                      </div>
+                      <div className="grid grid-cols-7 gap-3">
+                      {calendarData.days.map((d, i) => (
+                      <div key={i} onClick={() => d && setSelectedDay(d)} className={`aspect-square rounded-[1.5rem] border transition-all relative flex flex-col items-center justify-center ${!d ? 'bg-transparent border-transparent' : 'bg-slate-900/40 border-slate-800/50 hover:border-blue-500/50 hover:bg-slate-800/60 cursor-pointer'} ${d?.type === 'holiday' ? 'opacity-40' : ''} ${d?.type === 'capped' ? 'ring-2 ring-emerald-500/30 border-emerald-500/50' : ''}`}>
                       {d && (
                         <>
                           <span className={`absolute top-3 left-4 text-[11px] font-black ${d.holidayName || d.dayOfWeek === 0 ? 'text-red-500/80' : d.dayOfWeek === 6 ? 'text-blue-500/60' : 'text-slate-500'}`}>{d.day}</span>
@@ -311,44 +316,44 @@ export default function SchedulerPage() {
                           )}
                         </>
                       )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </main>
-          </div>
-        ) : (
-          <div className="bg-slate-900/20 p-6 rounded-[2.5rem] border border-slate-800/50 shadow-inner overflow-hidden">
-            <div className="grid grid-cols-7 mb-6">
-              {DAYS_KOREAN.map((d, idx) => (
-                <div key={d} className={`text-center text-[10px] font-black uppercase tracking-widest ${idx === 0 ? 'text-red-500/50' : idx === 6 ? 'text-blue-500/50' : 'text-slate-600'}`}>{d}</div>
-              ))}
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
-              {calendarData.days.map((d, i) => {
-                if (!d) return <div key={i} className="aspect-square bg-transparent border-transparent" />;
-                
-                // 해당 날짜에 근무하는 팀원들 추출
-                const workingMembers = teamSchedules.filter(m => {
-                  const h = Number(m.exceptions?.[d.dateKey] !== undefined ? m.exceptions[d.dateKey] : (m.defaults?.[d.dayOfWeek] || 0));
-                  return h > 0;
-                }).map(m => {
-                  const h = Number(m.exceptions?.[d.dateKey] !== undefined ? m.exceptions[d.dateKey] : (m.defaults?.[d.dayOfWeek] || 0));
-                  const start = m.startExceptions?.[d.dateKey] || m.startDefaults?.[d.dayOfWeek] || "09:00";
-                  const lunch = Number(m.lunchExceptions?.[d.dateKey] || m.lunchDefaults?.[d.dayOfWeek] || 1.0);
-                  
-                  // 종료 시간 계산
-                  const [sh, sm] = start.split(':').map(Number);
-                  const totalMin = sh * 60 + sm + (h + lunch) * 60;
-                  const end = `${String(Math.floor(totalMin / 60) % 24).padStart(2, '0')}:${String(totalMin % 60).padStart(2, '0')}`;
-                  
-                  return { name: m.name, start, end };
-                });
+                      </div>
+                      ))}
+                      </div>
+                      </div>
+                      </main>
+                      </div>
+                      ) : (
+                      <div className="bg-slate-900/20 p-6 rounded-[2.5rem] border border-slate-800/50 shadow-inner overflow-hidden">
+                      <div className="grid grid-cols-7 mb-6">
+                      {DAYS_KOREAN.map((d, idx) => (
+                      <div key={d} className={`text-center text-[10px] font-black uppercase tracking-widest ${idx === 0 ? 'text-red-500/50' : idx === 6 ? 'text-blue-500/50' : 'text-slate-600'}`}>{d}</div>
+                      ))}
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
+                      {calendarData.days.map((d, i) => {
+                      if (!d) return <div key={i} className="aspect-square bg-transparent border-transparent" />;
 
-                return (
-                  <div key={i} className="min-h-[120px] md:aspect-square rounded-[1.5rem] border bg-slate-900/40 border-slate-800/50 p-3 flex flex-col gap-2 relative overflow-hidden hover:border-slate-700 transition-all">
-                    <span className={`text-[10px] font-black ${d.dayOfWeek === 0 ? 'text-red-500/60' : d.dayOfWeek === 6 ? 'text-blue-500/60' : 'text-slate-600'}`}>{d.day}</span>
-                    <div className="flex flex-col gap-1 overflow-y-auto custom-scrollbar pr-1">
+                      // 해당 날짜에 근무하는 팀원들 추출
+                      const workingMembers = teamSchedules.filter(m => {
+                      const h = Number(m.exceptions?.[d.dateKey] !== undefined ? m.exceptions[d.dateKey] : (m.defaults?.[d.dayOfWeek] || 0));
+                      return h > 0;
+                      }).map(m => {
+                      const h = Number(m.exceptions?.[d.dateKey] !== undefined ? m.exceptions[d.dateKey] : (m.defaults?.[d.dayOfWeek] || 0));
+                      const start = m.startExceptions?.[d.dateKey] || m.startDefaults?.[d.dayOfWeek] || "09:00";
+                      const lunch = Number(m.lunchExceptions?.[d.dateKey] || m.lunchDefaults?.[d.dayOfWeek] || 1.0);
+
+                      // 종료 시간 계산
+                      const [sh, sm] = start.split(':').map(Number);
+                      const totalMin = sh * 60 + sm + (h + lunch) * 60;
+                      const end = `${String(Math.floor(totalMin / 60) % 24).padStart(2, '0')}:${String(totalMin % 60).padStart(2, '0')}`;
+
+                      return { name: m.name, start, end };
+                      });
+
+                      return (
+                      <div key={i} className="min-h-[120px] md:aspect-square rounded-[1.5rem] border bg-slate-900/40 border-slate-800/50 p-3 flex flex-col gap-2 relative overflow-hidden hover:border-slate-700 transition-all">
+                      <span className={`text-[10px] font-black ${d.dayOfWeek === 0 ? 'text-red-500/60' : d.dayOfWeek === 6 ? 'text-blue-500/60' : 'text-slate-600'}`}>{d.day}</span>
+                      <div className="flex flex-col gap-1 overflow-y-auto custom-scrollbar pr-1">
                       {workingMembers.length > 0 ? (
                         workingMembers.map((m, idx) => (
                           <div key={idx} className="bg-slate-800/50 rounded-lg p-1.5 border border-slate-700/50">
@@ -365,33 +370,62 @@ export default function SchedulerPage() {
                           <span className="text-[8px] font-bold text-slate-800 uppercase tracking-tighter">No Schedule</span>
                         </div>
                       )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+                      </div>
+                      </div>
+                      );
+                      })}
+                      </div>
+                      </div>
+                      )}
 
-        {/* Modal */}
-        {selectedDay && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-300">
-            <div className="bg-[#161b22] w-full max-w-sm rounded-[3rem] border border-slate-700 p-10 shadow-2xl space-y-8">
-              <div className="text-center space-y-1">
-                <h3 className="text-2xl font-black text-blue-400 tracking-tighter">Edit Schedule</h3>
-                <p className="text-slate-500 font-bold">{selectedDay.dateKey} ({DAYS_KOREAN[selectedDay.dayOfWeek]})</p>
-              </div>
-              <form onSubmit={(e) => {
-                e.preventDefault();
-                const fd = new FormData(e.currentTarget);
-                const h = fd.get('type') === 'off' ? 0 : Number(fd.get('hours')) || 0;
-                saveState({
-                  exceptions: { ...state.exceptions, [selectedDay.dateKey]: h },
-                  startExceptions: { ...state.startExceptions, [selectedDay.dateKey]: fd.get('start') },
-                  lunchExceptions: { ...state.lunchExceptions, [selectedDay.dateKey]: fd.get('lunch') }
-                });
-                setSelectedDay(null);
-              }} className="space-y-6">
+                      {/* Modal */}
+                      {selectedDay && (
+                      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-300">
+                      <div className="bg-[#161b22] w-full max-w-sm rounded-[3rem] border border-slate-700 p-10 shadow-2xl space-y-8">
+                      <div className="text-center space-y-1">
+                      <h3 className="text-2xl font-black text-blue-400 tracking-tighter">Edit Schedule</h3>
+                      <p className="text-slate-500 font-bold">{selectedDay.dateKey} ({DAYS_KOREAN[selectedDay.dayOfWeek]})</p>
+                      </div>
+                      <form onSubmit={(e) => {
+                      e.preventDefault();
+                      const fd = new FormData(e.currentTarget);
+                      let h = fd.get('type') === 'off' ? 0 : Number(fd.get('hours')) || 0;
+
+                      // --- 80시간 한도 자동 조정 로직 ---
+                      // 1. 현재 수정 중인 날짜를 제외한 한 달간의 총 근로시간 계산
+                      let otherDaysHours = 0;
+                      const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
+                      for (let d = 1; d <= lastDayOfMonth; d++) {
+                      const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                      if (dateKey === selectedDay.dateKey) continue; // 현재 선택된 날짜는 제외
+
+                      const dayOfWeek = new Date(year, month, d).getDay();
+                      const holidayName = getHoliday(dateKey);
+                      let hoursOnDay = Number(state.exceptions[dateKey] !== undefined ? state.exceptions[dateKey] : state.defaults[dayOfWeek]) || 0;
+
+                      // 공휴일 기본값(0) 적용
+                      if (holidayName && state.exceptions[dateKey] === undefined) hoursOnDay = 0;
+
+                      otherDaysHours += hoursOnDay;
+                      }
+
+                      // 2. 남은 한도 계산 및 시간 자동 조정
+                      const remainingLimit = Math.max(0, MAX_MONTHLY_HOURS - otherDaysHours);
+                      if (h > remainingLimit) {
+                      const originalH = h;
+                      h = remainingLimit; // 한도에 맞게 조정
+                      alert(`월 80시간 한도를 초과하여 근로시간이 ${originalH}h에서 ${h}h로 자동 조정되었습니다.`);
+                      }
+                      // -----------------------------
+
+                      saveState({
+                      exceptions: { ...state.exceptions, [selectedDay.dateKey]: h },
+                      startExceptions: { ...state.startExceptions, [selectedDay.dateKey]: fd.get('start') },
+                      lunchExceptions: { ...state.lunchExceptions, [selectedDay.dateKey]: fd.get('lunch') }
+                      });
+                      setSelectedDay(null);
+                      }} className="space-y-6">
+
                 <div className="flex gap-2 p-1.5 bg-slate-900 rounded-2xl border border-slate-800">
                   <label className="flex-1"><input type="radio" name="type" value="work" defaultChecked={selectedDay.hours > 0} className="peer hidden" /><div className="text-center py-2.5 rounded-xl text-xs font-black cursor-pointer peer-checked:bg-blue-600 peer-checked:text-white text-slate-600 transition-all">근무</div></label>
                   <label className="flex-1"><input type="radio" name="type" value="off" defaultChecked={selectedDay.hours === 0} className="peer hidden" /><div className="text-center py-2.5 rounded-xl text-xs font-black cursor-pointer peer-checked:bg-red-600 peer-checked:text-white text-slate-600 transition-all">휴무</div></label>
