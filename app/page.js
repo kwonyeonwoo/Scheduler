@@ -116,23 +116,21 @@ export default function SchedulerPage() {
   };
 
   const calendarData = useMemo(() => {
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
+    const y = currentDate.getFullYear();
+    const m = currentDate.getMonth();
+    const firstDay = new Date(y, m, 1);
+    const lastDay = new Date(y, m + 1, 0);
     const days = [];
     for (let i = 0; i < firstDay.getDay(); i++) days.push(null);
     
     let totalAccHours = 0;
     for (let d = 1; d <= lastDay.getDate(); d++) {
-      const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      const dayOfWeek = new Date(year, month, d).getDay();
+      const dateKey = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const dayOfWeek = new Date(y, m, d).getDay();
       const holidayName = getHoliday(dateKey);
       
       let scheduledHours = Number(state.exceptions[dateKey] !== undefined ? state.exceptions[dateKey] : state.defaults[dayOfWeek]) || 0;
-      
-      // 공휴일이면 자동으로 휴무 처리 (단, 사용자가 예외적으로 근무를 설정하지 않은 경우)
-      if (holidayName && state.exceptions[dateKey] === undefined) {
-        scheduledHours = 0;
-      }
+      if (holidayName && state.exceptions[dateKey] === undefined) scheduledHours = 0;
 
       let effectiveHours = scheduledHours;
       let type = state.exceptions[dateKey] !== undefined ? (scheduledHours === 0 ? 'holiday' : 'exception') : (scheduledHours === 0 && holidayName ? 'holiday' : 'default');
@@ -149,8 +147,35 @@ export default function SchedulerPage() {
       totalAccHours += effectiveHours;
       days.push({ day: d, dateKey, hours: scheduledHours, effectiveHours, start, end, lunch, type, dayOfWeek, holidayName });
     }
-    return { days, totalAccHours, totalWage: totalAccHours * HOURLY_WAGE };
-  }, [year, month, state]);
+    return { days, totalAccHours, totalWage: Math.min(totalAccHours, MAX_MONTHLY_HOURS) * HOURLY_WAGE };
+  }, [currentDate, state]);
+
+  // --- 80시간 한도 체크 및 자동 조정 함수 ---
+  const getAdjustedHours = (dateKey, targetHours) => {
+    const [y, m, d_str] = dateKey.split('-').map(Number);
+    const lastDayOfMonth = new Date(y, m, 0).getDate();
+    let otherDaysTotal = 0;
+
+    for (let d = 1; d <= lastDayOfMonth; d++) {
+      const currentKey = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      if (currentKey === dateKey) continue;
+
+      const dayOfWeek = new Date(y, m - 1, d).getDay();
+      const holidayName = getHoliday(currentKey);
+      let h = Number(state.exceptions[currentKey] !== undefined ? state.exceptions[currentKey] : state.defaults[dayOfWeek]) || 0;
+      if (holidayName && state.exceptions[currentKey] === undefined) h = 0;
+      
+      otherDaysTotal += h;
+      if (otherDaysTotal > MAX_MONTHLY_HOURS) otherDaysTotal = MAX_MONTHLY_HOURS;
+    }
+
+    const remainingLimit = Math.max(0, MAX_MONTHLY_HOURS - otherDaysTotal);
+    if (targetHours > remainingLimit) {
+      alert(`월 80시간 한도를 초과하여 근로시간이 ${targetHours}h에서 ${remainingLimit}h로 자동 조정되었습니다.`);
+      return remainingLimit;
+    }
+    return targetHours;
+  };
 
   // 5. App Actions
   const handleCapture = async () => {
