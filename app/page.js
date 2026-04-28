@@ -200,20 +200,22 @@ export default function SchedulerPage() {
     if (!user) return;
     setIsSyncing(true);
     
-    // 즉시 로컬 상태 업데이트하여 UI 반응성 확보
-    setState(prev => {
-      const next = { ...prev, ...updates };
+    // 1. 즉시 로컬 상태 업데이트 (UI 반응성)
+    setState(prev => ({ ...prev, ...updates }));
+
+    // 2. Firebase 저장 (변경된 부분만 병합)
+    try {
       const docId = user.email === 'yeonyoo5969@gmail.com' ? 'yeonyoo5969@gmail.com' : user.uid;
-      
-      // 백그라운드에서 Firebase 저장
-      setDoc(doc(db, "schedules", docId), {
-        ...next,
-        name: next.name || user.email.split('@')[0],
+      await setDoc(doc(db, "schedules", docId), {
+        ...updates,
+        email: user.email,
         updatedAt: new Date().toISOString()
-      }, { merge: true }).catch(console.error).finally(() => setIsSyncing(false));
-      
-      return next;
-    });
+      }, { merge: true });
+    } catch (e) {
+      console.error("Save failed:", e);
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   // --- Render Login Screen ---
