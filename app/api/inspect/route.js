@@ -2,6 +2,8 @@ import { db } from '../../lib/firebase';
 import { collection, getDocs, doc, deleteDoc } from 'firebase/firestore';
 import { NextResponse } from 'next/server';
 
+export const dynamic = 'force-static';
+
 export async function GET() {
   try {
     const querySnapshot = await getDocs(collection(db, "schedules"));

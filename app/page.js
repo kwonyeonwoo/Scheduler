@@ -159,24 +159,23 @@ export default function SchedulerPage() {
     let dailyClamped = Math.max(0, Math.min(8, Number(targetHours) || 0));
     
     const [y, m, d_str] = dateKey.split('-').map(Number);
-    const lastDayOfMonth = new Date(y, m, 0).getDate();
-    let otherDaysTotal = 0;
+    const targetDay = d_str;
+    let precedingDaysTotal = 0;
 
-    for (let d = 1; d <= lastDayOfMonth; d++) {
+    // 해당 날짜 이전의 모든 날짜의 근로시간 합산 (이미 확정된 이전 일수 기준)
+    for (let d = 1; d < targetDay; d++) {
       const currentKey = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      if (currentKey === dateKey) continue;
-
       const dayOfWeek = new Date(y, m - 1, d).getDay();
       const holidayName = getHoliday(currentKey);
+      
       let h = Number(state.exceptions[currentKey] !== undefined ? state.exceptions[currentKey] : state.defaults[dayOfWeek]) || 0;
       if (holidayName && state.exceptions[currentKey] === undefined) h = 0;
       
-      otherDaysTotal += h;
-      if (otherDaysTotal > MAX_MONTHLY_HOURS) otherDaysTotal = MAX_MONTHLY_HOURS;
+      precedingDaysTotal += h;
     }
 
-    const remainingMonthlyLimit = Math.max(0, MAX_MONTHLY_HOURS - otherDaysTotal);
-    // 2. 월간 80시간 한도 내에서 최종 반환 (일별 8시간 제한된 값 중에서 남은 월 한도만큼만 허용)
+    const remainingMonthlyLimit = Math.max(0, MAX_MONTHLY_HOURS - precedingDaysTotal);
+    // 2. 월간 80시간 한도 내에서 최종 반환 (이전 시간들을 제외한 남은 한도만큼만 허용)
     return Math.min(dailyClamped, remainingMonthlyLimit);
   };
 
