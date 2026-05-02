@@ -44,7 +44,20 @@ export default function SchedulerPage() {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
-      if (u) setAuthError('');
+      if (u) {
+        setAuthError('');
+      } else {
+        // 로그아웃 시 상태 초기화
+        setState({
+          name: '',
+          defaults: { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
+          exceptions: {},
+          startDefaults: { 0: "09:00", 1: "09:00", 2: "09:00", 3: "09:00", 4: "09:00", 5: "09:00", 6: "09:00" },
+          startExceptions: {},
+          lunchDefaults: { 0: "1.0", 1: "1.0", 2: "1.0", 3: "1.0", 4: "1.0", 5: "1.0", 6: "1.0" },
+          lunchExceptions: {},
+        });
+      }
     });
     return () => unsub();
   }, []);
@@ -52,7 +65,7 @@ export default function SchedulerPage() {
   // 2. Data Sync
   useEffect(() => {
     if (!user) return;
-    const docId = user.email === 'yeonyoo5969@gmail.com' ? 'yeonyoo5969@gmail.com' : user.uid;
+    const docId = user.uid; // 모든 사용자에 대해 UID 사용 (일관성 유지)
     const unsub = onSnapshot(doc(db, "schedules", docId), (docSnap) => {
       // 로컬에서 쓰기 작업 중(Pending)일 때는 서버 업데이트를 무시하여 튕김 방지
       if (docSnap.exists() && !docSnap.metadata.hasPendingWrites) {
@@ -204,7 +217,7 @@ export default function SchedulerPage() {
 
     // 2. Firebase 저장 (변경된 부분만 병합)
     try {
-      const docId = user.email === 'yeonyoo5969@gmail.com' ? 'yeonyoo5969@gmail.com' : user.uid;
+      const docId = user.uid; // 모든 사용자에 대해 UID 사용
       await setDoc(doc(db, "schedules", docId), {
         ...updates,
         email: user.email,
@@ -298,6 +311,18 @@ export default function SchedulerPage() {
         {viewMode === 'personal' ? (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8" ref={calendarRef}>
             <aside className="lg:col-span-3 space-y-6">
+              <div className="bg-slate-900/40 p-6 rounded-2xl border border-slate-800 space-y-4 shadow-xl">
+                <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">사용자 프로필</h3>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest px-1">이름 (팀 공유용)</label>
+                  <input type="text" value={state.name || ''} onChange={(e) => {
+                    const newName = e.target.value;
+                    setState(prev => ({ ...prev, name: newName }));
+                    saveState({ name: newName });
+                  }} className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-xs focus:border-blue-500 outline-none font-bold" placeholder="이름을 입력하세요" />
+                </div>
+              </div>
+
               <div className="bg-slate-900/40 p-6 rounded-2xl border border-slate-800 space-y-4 shadow-xl">
                 <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">주간 기본 설정</h3>
                 <div className="space-y-3">
