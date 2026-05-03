@@ -71,12 +71,11 @@ export default function SchedulerPage() {
   // 2. Data Sync
   useEffect(() => {
     if (!user) return;
-    const docId = getDocId(user);
+    const docId = user.uid; // 보안 규칙 준수 및 모바일 동기화를 위해 UID 사용
     const unsub = onSnapshot(doc(db, "schedules", docId), (docSnap) => {
       if (docSnap.exists() && !docSnap.metadata.hasPendingWrites) {
         const data = docSnap.data();
         
-        // Firestore는 Map 키를 항상 문자열로 저장하므로, 다시 숫자로 변환 (데이터 정규화)
         const normalize = (obj) => {
           if (!obj) return {};
           const newObj = {};
@@ -209,7 +208,7 @@ export default function SchedulerPage() {
     setIsSyncing(true);
     setState(prev => ({ ...prev, ...updates }));
     try {
-      const docId = getDocId(user);
+      const docId = user.uid; // 보안 규칙에 따라 UID 사용
       await setDoc(doc(db, "schedules", docId), {
         ...updates,
         email: user.email,
@@ -217,7 +216,7 @@ export default function SchedulerPage() {
       }, { merge: true });
     } catch (e) {
       console.error("Save failed:", e);
-      alert("Save failed! Check your connection.");
+      alert("Save failed! UID permission error suspected.");
     } finally {
       setIsSyncing(false);
     }
