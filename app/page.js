@@ -40,6 +40,13 @@ export default function SchedulerPage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [viewMode, setViewMode] = useState('personal');
 
+  // Helper to get consistent Doc ID from user (User ID prefix)
+  const getDocId = (u) => {
+    if (!u) return null;
+    // 사용자 ID (이메일 앞부분)를 우선적으로 사용
+    return u.email.split('@')[0];
+  };
+
   // 1. Auth Sync
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
@@ -61,20 +68,35 @@ export default function SchedulerPage() {
     return () => unsub();
   }, []);
 
-  // 2. Data Sync (Always use user.uid)
+  // 2. Data Sync
   useEffect(() => {
     if (!user) return;
-    const docId = user.uid;
+    const docId = getDocId(user);
     const unsub = onSnapshot(doc(db, "schedules", docId), (docSnap) => {
       if (docSnap.exists() && !docSnap.metadata.hasPendingWrites) {
         const data = docSnap.data();
+        
+        // Firestore는 Map 키를 항상 문자열로 저장하므로, 다시 숫자로 변환 (데이터 정규화)
+        const normalize = (obj) => {
+          if (!obj) return {};
+          const newObj = {};
+          Object.keys(obj).forEach(key => {
+            const numKey = parseInt(key, 10);
+            newObj[isNaN(numKey) ? key : numKey] = obj[key];
+          });
+          return newObj;
+        };
+
         setState(prev => ({
           ...prev,
           ...data,
+          defaults: normalize(data.defaults) || prev.defaults,
+          startDefaults: normalize(data.startDefaults) || prev.startDefaults,
+          lunchDefaults: normalize(data.lunchDefaults) || prev.lunchDefaults,
           name: data.name || prev.name 
         }));
       }
-    });
+    }, (err) => console.error("Snapshot error:", err));
     return () => unsub();
   }, [user]);
 
@@ -90,12 +112,12 @@ export default function SchedulerPage() {
           s.push({ 
             id: doc.id, 
             ...data,
-            name: data.name || data.email || `User(${doc.id.slice(0,5)})`
+            name: data.name || data.email?.split('@')[0] || `User(${doc.id.slice(0,5)})`
           });
         }
       });
       setTeamSchedules(s);
-    });
+    }, (err) => console.error("Team sync error:", err));
     return () => unsub();
   }, [viewMode]);
 
@@ -111,7 +133,7 @@ export default function SchedulerPage() {
         await createUserWithEmailAndPassword(auth, finalEmail, password);
       }
     } catch (err) {
-      setAuthError('Authentication failed.');
+      setAuthError('Authentication failed. Check your ID/PW.');
     }
   };
 
@@ -185,20 +207,17 @@ export default function SchedulerPage() {
   const saveState = async (updates) => {
     if (!user) return;
     setIsSyncing(true);
-    
-    // Update local state first
     setState(prev => ({ ...prev, ...updates }));
-
     try {
-      const docId = user.uid; // Always use user.uid
+      const docId = getDocId(user);
       await setDoc(doc(db, "schedules", docId), {
-        name: state.name,
         ...updates,
         email: user.email,
         updatedAt: new Date().toISOString()
       }, { merge: true });
     } catch (e) {
       console.error("Save failed:", e);
+      alert("Save failed! Check your connection.");
     } finally {
       setIsSyncing(false);
     }
@@ -213,8 +232,8 @@ export default function SchedulerPage() {
             <p className="text-slate-500 text-sm font-bold">Smart Work Scheduler</p>
           </div>
           <form onSubmit={handleAuth} className="space-y-4">
-            <input type="text" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold" placeholder="ID" />
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold" placeholder="PW" />
+            <input type="text" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold" placeholder="User ID" />
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold" placeholder="Password" />
             <button type="submit" className="w-full py-5 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-blue-900/20 transition-all">
               {authMode === 'login' ? 'Login' : 'Join'}
             </button>
@@ -238,8 +257,7 @@ export default function SchedulerPage() {
               <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400 tracking-tight">TIME KEEPER</h1>
               <button onClick={handleLogout} className="text-[10px] font-black bg-slate-800 px-2 py-1 rounded-lg text-slate-500 hover:text-red-400 transition-all">LOGOUT</button>
             </div>
-            <div className="text-slate-400 font-bold text-sm">{user.email}</div>
-            <div className="text-[10px] font-black text-slate-600">UID: {user.uid}</div>
+            <div className="text-slate-400 font-bold text-sm">User: {getDocId(user)}</div>
           </div>
           <div className="flex flex-col justify-center space-y-3">
             <div className="flex justify-between text-xs font-black text-slate-500 uppercase">
@@ -258,7 +276,7 @@ export default function SchedulerPage() {
 
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-4">
-            <div className="flex gap-1 bg-slate-900/50 p-1 rounded-xl border border-slate-800">
+            <div className="flex gap-1 bg-slate-900/50 p-1 rounded-xl border border-slate-800 shadow-xl">
               <button onClick={() => setViewMode('personal')} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${viewMode === 'personal' ? 'bg-blue-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>MY</button>
               <button onClick={() => setViewMode('team')} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${viewMode === 'team' ? 'bg-indigo-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>TEAM</button>
             </div>
@@ -269,21 +287,6 @@ export default function SchedulerPage() {
               </div>
             )}
           </div>
-          <button onClick={() => {
-            if (typeof window !== 'undefined' && window.html2canvas) {
-               window.html2canvas(calendarRef.current, { backgroundColor: '#0d1117', scale: 2 }).then(canvas => {
-                const link = document.createElement('a');
-                link.download = `Schedule.png`;
-                link.href = canvas.toDataURL();
-                link.click();
-              });
-            } else {
-              const script = document.createElement('script');
-              script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-              document.head.appendChild(script);
-              alert("Capture engine loading... try again in 1s.");
-            }
-          }} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-black uppercase tracking-widest border border-slate-700">CAPTURE</button>
         </div>
 
         {viewMode === 'personal' ? (
@@ -339,7 +342,7 @@ export default function SchedulerPage() {
                                 {Number(d.effectiveHours).toFixed(1)}
                               </div>
                               {d.effectiveHours < d.hours && (
-                                <div className="text-[8px] font-black text-amber-500 uppercase tracking-tighter leading-none mb-1">Adjusted</div>
+                                <div className="text-[8px] font-black text-amber-500 uppercase tracking-tighter leading-none mb-1">Suspend</div>
                               )}
                               <div className="text-[9px] text-slate-600 font-bold">{d.start} ~ {d.end}</div>
                             </div>
@@ -386,7 +389,7 @@ export default function SchedulerPage() {
                     <div className="flex flex-col gap-1 overflow-y-auto pr-1">
                       {workingMembers.length > 0 ? (
                         workingMembers.map((m, idx) => (
-                          <div key={idx} className="bg-slate-800/50 rounded-lg p-1.5 border border-slate-700/50">
+                          <div key={idx} className="bg-slate-800/50 rounded-lg p-1.5 border border-slate-700/50 shadow-sm">
                             <span className="text-[10px] font-black text-blue-400 truncate block">{m.name}</span>
                             <span className="text-[8px] font-bold text-slate-500">{m.start} ~</span>
                           </div>
@@ -428,10 +431,10 @@ export default function SchedulerPage() {
                   <label className="flex-1"><input type="radio" name="type" value="off" defaultChecked={selectedDay.hours === 0} className="peer hidden" /><div className="text-center py-2.5 rounded-xl text-xs font-black cursor-pointer peer-checked:bg-red-600 peer-checked:text-white text-slate-600 transition-all">Off</div></label>
                 </div>
                 <div className="space-y-5">
-                  <input name="hours" type="number" step="0.5" defaultValue={selectedDay.hours || 8} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold" placeholder="Daily Hours" />
+                  <input name="hours" type="number" step="0.5" defaultValue={selectedDay.hours || 8} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold shadow-inner" placeholder="Daily Hours" />
                   <div className="grid grid-cols-2 gap-4">
-                    <input name="start" type="time" defaultValue={selectedDay.start} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold" />
-                    <select name="lunch" defaultValue={selectedDay.lunch} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold appearance-none"><option value="0">None</option><option value="0.5">30m</option><option value="1.0">1h</option></select>
+                    <input name="start" type="time" defaultValue={selectedDay.start} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold shadow-inner" />
+                    <select name="lunch" defaultValue={selectedDay.lunch} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold appearance-none shadow-inner"><option value="0">None</option><option value="0.5">30m</option><option value="1.0">1h</option></select>
                   </div>
                 </div>
                 <div className="flex gap-4 pt-4">
