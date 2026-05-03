@@ -306,18 +306,6 @@ export default function SchedulerPage() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8" ref={calendarRef}>
             <aside className="lg:col-span-3 space-y-6">
               <div className="bg-slate-900/40 p-6 rounded-2xl border border-slate-800 space-y-4 shadow-xl">
-                <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">Profile Setting</h3>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest px-1">Display Name</label>
-                  <input type="text" value={state.name || ''} onChange={(e) => {
-                    const newName = e.target.value;
-                    setState(prev => ({ ...prev, name: newName }));
-                    saveState({ name: newName });
-                  }} className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-xs focus:border-blue-500 outline-none font-bold" placeholder="Your Name" />
-                </div>
-              </div>
-
-              <div className="bg-slate-900/40 p-6 rounded-2xl border border-slate-800 space-y-4 shadow-xl">
                 <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">Weekly Defaults</h3>
                 <div className="space-y-3">
                   {DAYS_KOREAN.map((day, idx) => (
