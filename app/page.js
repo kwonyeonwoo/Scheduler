@@ -301,9 +301,17 @@ export default function SchedulerPage() {
 
         {/* View Mode & Capture */}
         <div className="flex justify-between items-center">
-          <div className="flex gap-1 bg-slate-900/50 p-1 rounded-xl w-fit border border-slate-800">
-            <button onClick={() => setViewMode('personal')} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${viewMode === 'personal' ? 'bg-blue-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>내 스케줄</button>
-            <button onClick={() => setViewMode('team')} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${viewMode === 'team' ? 'bg-indigo-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>팀 전체 보기</button>
+          <div className="flex items-center gap-4">
+            <div className="flex gap-1 bg-slate-900/50 p-1 rounded-xl w-fit border border-slate-800">
+              <button onClick={() => setViewMode('personal')} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${viewMode === 'personal' ? 'bg-blue-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>내 스케줄</button>
+              <button onClick={() => setViewMode('team')} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${viewMode === 'team' ? 'bg-indigo-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>팀 전체 보기</button>
+            </div>
+            {isSyncing && (
+              <div className="flex items-center gap-2 animate-pulse">
+                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Syncing...</span>
+              </div>
+            )}
           </div>
           <button onClick={handleCapture} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-black uppercase tracking-widest border border-slate-700 flex items-center gap-2">캡처 저장</button>
         </div>
