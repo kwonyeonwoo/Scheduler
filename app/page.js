@@ -198,13 +198,17 @@ export default function SchedulerPage() {
   const saveState = async (updates) => {
     if (!user) return;
     setIsSyncing(true);
+    
+    // 최신 상태 미리 반영
     setState(prev => ({ ...prev, ...updates }));
+
     try {
       const isSpecial = user.email === 'yeonyoo5969@gmail.com' || user.email === 'yeonwoo5969@gmail.com';
       const docId = isSpecial ? user.email : user.uid;
+      
       await setDoc(doc(db, "schedules", docId), {
-        ...updates,
-        name: state.name, // 이름 유지 보장
+        name: state.name, // 기존 이름 (stale 할 수 있음)
+        ...updates,       // 최신 변경 사항 (이름 변경 시 여기서 덮어씌움)
         email: user.email,
         updatedAt: new Date().toISOString()
       }, { merge: true });
