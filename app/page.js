@@ -68,35 +68,44 @@ export default function SchedulerPage() {
     return () => unsub();
   }, []);
 
-  // 2. Data Sync
+  // 2. Data Sync (Multi-Path Recovery)
   useEffect(() => {
     if (!user) return;
-    const docId = user.uid; // 보안 규칙 준수 및 모바일 동기화를 위해 UID 사용
-    const unsub = onSnapshot(doc(db, "schedules", docId), (docSnap) => {
-      if (docSnap.exists() && !docSnap.metadata.hasPendingWrites) {
-        const data = docSnap.data();
-        
-        const normalize = (obj) => {
-          if (!obj) return {};
-          const newObj = {};
-          Object.keys(obj).forEach(key => {
-            const numKey = parseInt(key, 10);
-            newObj[isNaN(numKey) ? key : numKey] = obj[key];
-          });
-          return newObj;
-        };
+    
+    const tryIds = [user.uid, user.email, user.email.split('@')[0]];
+    const unsubs = [];
 
-        setState(prev => ({
-          ...prev,
-          ...data,
-          defaults: normalize(data.defaults) || prev.defaults,
-          startDefaults: normalize(data.startDefaults) || prev.startDefaults,
-          lunchDefaults: normalize(data.lunchDefaults) || prev.lunchDefaults,
-          name: data.name || prev.name 
-        }));
-      }
-    }, (err) => console.error("Snapshot error:", err));
-    return () => unsub();
+    // 모든 가능한 ID에서 데이터를 시도하여 하나라도 있으면 로드
+    tryIds.forEach(id => {
+      if (!id) return;
+      const unsub = onSnapshot(doc(db, "schedules", id), (docSnap) => {
+        if (docSnap.exists() && !docSnap.metadata.hasPendingWrites) {
+          console.log(`Data found at ID: ${id}`);
+          const data = docSnap.data();
+          const normalize = (obj) => {
+            if (!obj) return {};
+            const newObj = {};
+            Object.keys(obj).forEach(key => {
+              const numKey = parseInt(key, 10);
+              newObj[isNaN(numKey) ? key : numKey] = obj[key];
+            });
+            return newObj;
+          };
+
+          setState(prev => ({
+            ...prev,
+            ...data,
+            defaults: normalize(data.defaults) || prev.defaults,
+            startDefaults: normalize(data.startDefaults) || prev.startDefaults,
+            lunchDefaults: normalize(data.lunchDefaults) || prev.lunchDefaults,
+            name: data.name || prev.name 
+          }));
+        }
+      });
+      unsubs.push(unsub);
+    });
+
+    return () => unsubs.forEach(un => un());
   }, [user]);
 
   useEffect(() => {
@@ -124,7 +133,8 @@ export default function SchedulerPage() {
   const handleAuth = async (e) => {
     e.preventDefault();
     setAuthError('');
-    const finalEmail = email.includes('@') ? email : `${email}@scheduler.com`;
+    // 기존에 gmail로 가입했을 가능성이 높으므로 자동 도메인 수정을 유연하게 처리
+    const finalEmail = email.includes('@') ? email : `${email}@gmail.com`;
     try {
       if (authMode === 'login') {
         await signInWithEmailAndPassword(auth, finalEmail, password);
@@ -132,7 +142,14 @@ export default function SchedulerPage() {
         await createUserWithEmailAndPassword(auth, finalEmail, password);
       }
     } catch (err) {
-      setAuthError('Authentication failed. Check your ID/PW.');
+      // 실패 시 scheduler.com 도메인으로 재시도 (계정 마이그레이션 대비)
+      try {
+        if (!email.includes('@')) {
+          await signInWithEmailAndPassword(auth, `${email}@scheduler.com`, password);
+        } else { throw err; }
+      } catch (innerErr) {
+        setAuthError('Authentication failed. Check your ID/PW.');
+      }
     }
   };
 
@@ -207,19 +224,31 @@ export default function SchedulerPage() {
     if (!user) return;
     setIsSyncing(true);
     setState(prev => ({ ...prev, ...updates }));
-    try {
-      const docId = user.uid; // 보안 규칙에 따라 UID 사용
-      await setDoc(doc(db, "schedules", docId), {
-        ...updates,
-        email: user.email,
-        updatedAt: new Date().toISOString()
-      }, { merge: true });
-    } catch (e) {
-      console.error("Save failed:", e);
-      alert("Save failed! UID permission error suspected.");
-    } finally {
-      setIsSyncing(false);
+    
+    // 사용자가 요청한 "사용자 ID" (이메일 앞부분)로 먼저 시도
+    const loginId = user.email.split('@')[0];
+    const docIds = [loginId, user.uid]; // 순차적으로 시도
+
+    let success = false;
+    for (const id of docIds) {
+      try {
+        await setDoc(doc(db, "schedules", id), {
+          ...updates,
+          email: user.email,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+        console.log(`Saved successfully to: ${id}`);
+        success = true;
+        break; 
+      } catch (e) {
+        console.warn(`Failed to save to ${id}, trying next...`);
+      }
     }
+
+    if (!success) {
+      alert("Save failed! Please check your ID and permissions.");
+    }
+    setIsSyncing(false);
   };
 
   if (!user) {
@@ -256,7 +285,11 @@ export default function SchedulerPage() {
               <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400 tracking-tight">TIME KEEPER</h1>
               <button onClick={handleLogout} className="text-[10px] font-black bg-slate-800 px-2 py-1 rounded-lg text-slate-500 hover:text-red-400 transition-all">LOGOUT</button>
             </div>
-            <div className="text-slate-400 font-bold text-sm">User: {getDocId(user)}</div>
+            <div className="text-slate-400 font-bold text-xs flex flex-col gap-1">
+              <div>Email: {user.email}</div>
+              <div className="text-blue-500/70">UID: {user.uid}</div>
+              <div className="text-purple-500/70">ID: {user.email.split('@')[0]}</div>
+            </div>
           </div>
           <div className="flex flex-col justify-center space-y-3">
             <div className="flex justify-between text-xs font-black text-slate-500 uppercase">
