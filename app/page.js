@@ -9,7 +9,7 @@ import {
   createUserWithEmailAndPassword, 
   signOut 
 } from 'firebase/auth';
-import { doc, onSnapshot, setDoc, collection, query, limit, getDocs } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, collection, query, limit } from 'firebase/firestore';
 
 // --- Constants ---
 const MAX_MONTHLY_HOURS = 80;
@@ -19,7 +19,7 @@ const DAYS_KOREAN = ['일', '월', '화', '수', '목', '금', '토'];
 export default function SchedulerPage() {
   const calendarRef = useRef(null);
   const [user, setUser] = useState(null);
-  const [authMode, setAuthMode] = useState('login'); // login | signup
+  const [authMode, setAuthMode] = useState('login'); 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
@@ -61,20 +61,17 @@ export default function SchedulerPage() {
     return () => unsub();
   }, []);
 
-  // 2. Data Sync
+  // 2. Data Sync (Always use user.uid)
   useEffect(() => {
     if (!user) return;
-    // yeonwoo/yeonyoo 두 가지 경우 모두 대응
-    const isSpecial = user.email === 'yeonyoo5969@gmail.com' || user.email === 'yeonwoo5969@gmail.com';
-    const docId = isSpecial ? user.email : user.uid;
-    
+    const docId = user.uid;
     const unsub = onSnapshot(doc(db, "schedules", docId), (docSnap) => {
       if (docSnap.exists() && !docSnap.metadata.hasPendingWrites) {
         const data = docSnap.data();
         setState(prev => ({
           ...prev,
           ...data,
-          name: data.name || prev.name // 이름이 있으면 유지
+          name: data.name || prev.name 
         }));
       }
     });
@@ -114,7 +111,7 @@ export default function SchedulerPage() {
         await createUserWithEmailAndPassword(auth, finalEmail, password);
       }
     } catch (err) {
-      setAuthError('인증 오류가 발생했습니다.');
+      setAuthError('Authentication failed.');
     }
   };
 
@@ -185,30 +182,18 @@ export default function SchedulerPage() {
     return Math.min(dailyClamped, remainingMonthlyLimit);
   };
 
-  const handleCapture = async () => {
-    if (typeof window !== 'undefined' && window.html2canvas) {
-      const canvas = await window.html2canvas(calendarRef.current, { backgroundColor: '#0d1117', scale: 2 });
-      const link = document.createElement('a');
-      link.download = `Schedule.png`;
-      link.href = canvas.toDataURL();
-      link.click();
-    }
-  };
-
   const saveState = async (updates) => {
     if (!user) return;
     setIsSyncing(true);
     
-    // 최신 상태 미리 반영
+    // Update local state first
     setState(prev => ({ ...prev, ...updates }));
 
     try {
-      const isSpecial = user.email === 'yeonyoo5969@gmail.com' || user.email === 'yeonwoo5969@gmail.com';
-      const docId = isSpecial ? user.email : user.uid;
-      
+      const docId = user.uid; // Always use user.uid
       await setDoc(doc(db, "schedules", docId), {
-        name: state.name, // 기존 이름 (stale 할 수 있음)
-        ...updates,       // 최신 변경 사항 (이름 변경 시 여기서 덮어씌움)
+        name: state.name,
+        ...updates,
         email: user.email,
         updatedAt: new Date().toISOString()
       }, { merge: true });
@@ -225,7 +210,7 @@ export default function SchedulerPage() {
         <div className="w-full max-w-md bg-slate-900/40 p-10 rounded-[3rem] border border-slate-800 shadow-2xl backdrop-blur-xl space-y-8 animate-in fade-in zoom-in duration-500">
           <div className="text-center space-y-2">
             <h1 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400 tracking-tighter">TIME KEEPER</h1>
-            <p className="text-slate-500 text-sm font-bold">스마트 스케줄러</p>
+            <p className="text-slate-500 text-sm font-bold">Smart Work Scheduler</p>
           </div>
           <form onSubmit={handleAuth} className="space-y-4">
             <input type="text" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold" placeholder="ID" />
@@ -236,7 +221,7 @@ export default function SchedulerPage() {
           </form>
           <div className="text-center">
             <button onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')} className="text-xs font-bold text-slate-500 hover:text-blue-400 transition-colors">
-              {authMode === 'login' ? 'Join' : 'Login'}
+              {authMode === 'login' ? 'Need an account? Join' : 'Already have an account? Login'}
             </button>
           </div>
         </div>
@@ -254,79 +239,119 @@ export default function SchedulerPage() {
               <button onClick={handleLogout} className="text-[10px] font-black bg-slate-800 px-2 py-1 rounded-lg text-slate-500 hover:text-red-400 transition-all">LOGOUT</button>
             </div>
             <div className="text-slate-400 font-bold text-sm">{user.email}</div>
+            <div className="text-[10px] font-black text-slate-600">UID: {user.uid}</div>
           </div>
           <div className="flex flex-col justify-center space-y-3">
             <div className="flex justify-between text-xs font-black text-slate-500 uppercase">
               <span>Monthly Progress</span>
-              <span>{calendarData.totalAccHours.toFixed(1)} / 80h</span>
+              <span className={calendarData.totalAccHours >= 80 ? 'text-emerald-400' : 'text-blue-400'}>{calendarData.totalAccHours.toFixed(1)} / 80.0h</span>
             </div>
             <div className="w-full h-3 bg-slate-800/50 rounded-full border border-slate-700/50">
-              <div className="h-full bg-blue-500 transition-all duration-1000" style={{ width: `${Math.min(100, (calendarData.totalAccHours / 80) * 100)}%` }} />
+              <div className={`h-full transition-all duration-1000 ${calendarData.totalAccHours >= 80 ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${Math.min(100, (calendarData.totalAccHours / 80) * 100)}%` }} />
             </div>
           </div>
-          <div className="bg-blue-500/5 rounded-2xl border border-blue-500/10 p-4 flex flex-col items-center justify-center">
+          <div className="bg-blue-500/5 rounded-2xl border border-blue-500/10 p-4 flex flex-col items-center justify-center text-center">
             <span className="text-[10px] font-black text-blue-500/70 uppercase mb-1">Estimated Wage</span>
-            <div className="text-2xl font-black text-blue-400">₩ {calendarData.totalWage.toLocaleString()}</div>
+            <div className="text-2xl font-black text-blue-400 tracking-tighter">₩ {calendarData.totalWage.toLocaleString()}</div>
           </div>
         </div>
 
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-4">
             <div className="flex gap-1 bg-slate-900/50 p-1 rounded-xl border border-slate-800">
-              <button onClick={() => setViewMode('personal')} className={`px-6 py-2 rounded-lg text-sm font-bold ${viewMode === 'personal' ? 'bg-blue-500 text-white' : 'text-slate-500'}`}>MY</button>
-              <button onClick={() => setViewMode('team')} className={`px-6 py-2 rounded-lg text-sm font-bold ${viewMode === 'team' ? 'bg-indigo-500 text-white' : 'text-slate-500'}`}>TEAM</button>
+              <button onClick={() => setViewMode('personal')} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${viewMode === 'personal' ? 'bg-blue-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>MY</button>
+              <button onClick={() => setViewMode('team')} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${viewMode === 'team' ? 'bg-indigo-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>TEAM</button>
             </div>
-            {isSyncing && <div className="text-[10px] font-black text-blue-500 animate-pulse">SYNCING...</div>}
+            {isSyncing && (
+              <div className="flex items-center gap-2 animate-pulse">
+                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Syncing...</span>
+              </div>
+            )}
           </div>
-          <button onClick={handleCapture} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-black border border-slate-700">CAPTURE</button>
+          <button onClick={() => {
+            if (typeof window !== 'undefined' && window.html2canvas) {
+               window.html2canvas(calendarRef.current, { backgroundColor: '#0d1117', scale: 2 }).then(canvas => {
+                const link = document.createElement('a');
+                link.download = `Schedule.png`;
+                link.href = canvas.toDataURL();
+                link.click();
+              });
+            } else {
+              const script = document.createElement('script');
+              script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+              document.head.appendChild(script);
+              alert("Capture engine loading... try again in 1s.");
+            }
+          }} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-black uppercase tracking-widest border border-slate-700">CAPTURE</button>
         </div>
 
         {viewMode === 'personal' ? (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8" ref={calendarRef}>
             <aside className="lg:col-span-3 space-y-6">
               <div className="bg-slate-900/40 p-6 rounded-2xl border border-slate-800 space-y-4 shadow-xl">
-                <label className="text-[10px] font-black text-slate-600 uppercase">Profile Name</label>
-                <input type="text" value={state.name || ''} onChange={(e) => {
-                  const newName = e.target.value;
-                  setState(prev => ({ ...prev, name: newName }));
-                  saveState({ name: newName });
-                }} className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-xs focus:border-blue-500 outline-none font-bold" placeholder="Your Name" />
+                <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">User Profile</h3>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest px-1">Display Name</label>
+                  <input type="text" value={state.name || ''} onChange={(e) => {
+                    const newName = e.target.value;
+                    setState(prev => ({ ...prev, name: newName }));
+                    saveState({ name: newName });
+                  }} className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-xs focus:border-blue-500 outline-none font-bold" placeholder="Enter name" />
+                </div>
               </div>
+
               <div className="bg-slate-900/40 p-6 rounded-2xl border border-slate-800 space-y-4 shadow-xl">
-                <h3 className="text-xs font-black text-slate-500 uppercase">Weekly Defaults</h3>
+                <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">Weekly Defaults</h3>
                 <div className="space-y-3">
                   {DAYS_KOREAN.map((day, idx) => (
                     <div key={day} className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-500">{day}</span>
-                      <input type="number" step="0.5" value={state.defaults[idx]} onChange={(e) => saveState({ defaults: { ...state.defaults, [idx]: e.target.value }})} className="bg-slate-800/50 border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] w-14 text-center outline-none font-bold" />
+                      <span className={`text-xs font-bold ${idx === 0 ? 'text-red-500/70' : idx === 6 ? 'text-blue-500/70' : 'text-slate-500'}`}>{day}</span>
+                      <input type="number" step="0.5" value={state.defaults[idx]} onChange={(e) => saveState({ defaults: { ...state.defaults, [idx]: e.target.value }})} className="bg-slate-800/50 border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] w-14 text-center focus:border-blue-500 outline-none font-bold" />
                     </div>
                   ))}
                 </div>
               </div>
             </aside>
+
             <main className="lg:col-span-9 space-y-4">
               <div className="flex justify-center items-center gap-8 mb-2">
-                <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))} className="text-slate-600 hover:text-white text-xl">←</button>
-                <h2 className="text-2xl font-black text-slate-100">{year}년 {month + 1}월</h2>
-                <button onClick={() => setCurrentDate(new Date(year, month + 1, 1))} className="text-slate-600 hover:text-white text-xl">→</button>
+                <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))} className="text-slate-600 hover:text-white transition-all text-xl">←</button>
+                <h2 className="text-2xl font-black tracking-tighter text-slate-100">{year}년 {month + 1}월</h2>
+                <button onClick={() => setCurrentDate(new Date(year, month + 1, 1))} className="text-slate-600 hover:text-white transition-all text-xl">→</button>
               </div>
-              <div className="bg-slate-900/20 p-6 rounded-[2.5rem] border border-slate-800/50">
+
+              <div className="bg-slate-900/20 p-6 rounded-[2.5rem] border border-slate-800/50 shadow-inner">
                 <div className="grid grid-cols-7 mb-6">
-                  {DAYS_KOREAN.map((d, idx) => (<div key={d} className="text-center text-[10px] font-black text-slate-600 uppercase">{d}</div>))}
+                  {DAYS_KOREAN.map((d, idx) => (
+                    <div key={d} className={`text-center text-[10px] font-black uppercase tracking-widest ${idx === 0 ? 'text-red-500/50' : idx === 6 ? 'text-blue-500/50' : 'text-slate-600'}`}>{d}</div>
+                  ))}
                 </div>
                 <div className="grid grid-cols-7 gap-3">
                   {calendarData.days.map((d, i) => (
-                    <div key={i} onClick={() => d && setSelectedDay(d)} className={`aspect-square rounded-[1.5rem] border transition-all relative flex flex-col items-center justify-center ${!d ? 'border-transparent' : 'bg-slate-900/40 border-slate-800/50 hover:border-blue-500 cursor-pointer'}`}>
+                    <div key={i} onClick={() => d && setSelectedDay(d)} className={`aspect-square rounded-[1.5rem] border transition-all relative flex flex-col items-center justify-center ${!d ? 'bg-transparent border-transparent' : 'bg-slate-900/40 border-slate-800/50 hover:border-blue-500/50 hover:bg-slate-800/60 cursor-pointer'} ${d?.type === 'holiday' ? 'opacity-40' : ''} ${d?.type === 'capped' ? 'ring-2 ring-emerald-500/30 border-emerald-500/50' : ''}`}>
                       {d && (
                         <>
-                          <span className={`absolute top-3 left-4 text-[11px] font-black ${d.dayOfWeek === 0 ? 'text-red-500/80' : d.dayOfWeek === 6 ? 'text-blue-500/60' : 'text-slate-500'}`}>{d.day}</span>
+                          <span className={`absolute top-3 left-4 text-[11px] font-black ${d.holidayName || d.dayOfWeek === 0 ? 'text-red-500/80' : d.dayOfWeek === 6 ? 'text-blue-500/60' : 'text-slate-500'}`}>{d.day}</span>
                           {d.effectiveHours > 0 ? (
                             <div className="text-center">
-                              <div className="text-sm md:text-lg font-black text-blue-400">{Number(d.effectiveHours).toFixed(1)}</div>
+                              <div className={`text-sm md:text-lg font-black ${d.type === 'default' ? 'text-blue-400' : d.type === 'exception' ? 'text-purple-400' : 'text-emerald-400'}`}>
+                                {Number(d.effectiveHours).toFixed(1)}
+                              </div>
+                              {d.effectiveHours < d.hours && (
+                                <div className="text-[8px] font-black text-amber-500 uppercase tracking-tighter leading-none mb-1">Adjusted</div>
+                              )}
                               <div className="text-[9px] text-slate-600 font-bold">{d.start} ~ {d.end}</div>
                             </div>
                           ) : (
-                            d.holidayName && <div className="text-[10px] font-black text-red-500/40 uppercase mt-4">Holiday</div>
+                            d.hours > 0 ? (
+                              <div className="text-center opacity-40">
+                                <div className="text-xs font-black text-red-500 uppercase tracking-tighter">Limit</div>
+                                <div className="text-[8px] text-slate-700 font-bold line-through">{d.hours.toFixed(1)}h</div>
+                              </div>
+                            ) : (
+                              d.holidayName && <div className="text-[10px] font-black text-red-500/40 uppercase tracking-tighter mt-4">Holiday</div>
+                            )
                           )}
                         </>
                       )}
@@ -337,26 +362,40 @@ export default function SchedulerPage() {
             </main>
           </div>
         ) : (
-          <div className="bg-slate-900/20 p-6 rounded-[2.5rem] border border-slate-800/50 shadow-inner">
+          <div className="bg-slate-900/20 p-6 rounded-[2.5rem] border border-slate-800/50 shadow-inner overflow-hidden">
+            <div className="grid grid-cols-7 mb-6">
+              {DAYS_KOREAN.map((d, idx) => (
+                <div key={d} className={`text-center text-[10px] font-black uppercase tracking-widest ${idx === 0 ? 'text-red-500/50' : idx === 6 ? 'text-blue-500/50' : 'text-slate-600'}`}>{d}</div>
+              ))}
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
               {calendarData.days.map((d, i) => {
-                if (!d) return <div key={i} />;
-                const members = teamSchedules.filter(m => {
+                if (!d) return <div key={i} className="aspect-square bg-transparent border-transparent" />;
+                const workingMembers = teamSchedules.filter(m => {
                   const h = Number(m.exceptions?.[d.dateKey] !== undefined ? m.exceptions[d.dateKey] : (m.defaults?.[d.dayOfWeek] || 0));
                   return h > 0;
+                }).map(m => {
+                  const h = Number(m.exceptions?.[d.dateKey] !== undefined ? m.exceptions[d.dateKey] : (m.defaults?.[d.dayOfWeek] || 0));
+                  const start = m.startExceptions?.[d.dateKey] || m.startDefaults?.[d.dayOfWeek] || "09:00";
+                  return { name: m.name, start };
                 });
+
                 return (
-                  <div key={i} className="min-h-[120px] rounded-[1.5rem] border bg-slate-900/40 border-slate-800/50 p-3 space-y-2">
-                    <span className="text-[10px] font-black text-slate-600">{d.day}</span>
-                    <div className="flex flex-col gap-1">
-                      {members.map((m, idx) => (
-                        <div key={idx} className="bg-slate-800/50 rounded-lg p-1.5 border border-slate-700/50">
-                          <div className="text-[10px] font-black text-blue-400 truncate">{m.name}</div>
-                          <div className="text-[8px] font-bold text-slate-500">
-                            {m.startExceptions?.[d.dateKey] || m.startDefaults?.[d.dayOfWeek] || "09:00"} ~
+                  <div key={i} className="min-h-[120px] md:aspect-square rounded-[1.5rem] border bg-slate-900/40 border-slate-800/50 p-3 flex flex-col gap-2 relative overflow-hidden hover:border-slate-700 transition-all">
+                    <span className={`text-[10px] font-black ${d.dayOfWeek === 0 ? 'text-red-500/60' : d.dayOfWeek === 6 ? 'text-blue-500/60' : 'text-slate-600'}`}>{d.day}</span>
+                    <div className="flex flex-col gap-1 overflow-y-auto pr-1">
+                      {workingMembers.length > 0 ? (
+                        workingMembers.map((m, idx) => (
+                          <div key={idx} className="bg-slate-800/50 rounded-lg p-1.5 border border-slate-700/50">
+                            <span className="text-[10px] font-black text-blue-400 truncate block">{m.name}</span>
+                            <span className="text-[8px] font-bold text-slate-500">{m.start} ~</span>
                           </div>
+                        ))
+                      ) : (
+                        <div className="flex-1 flex items-center justify-center">
+                          <span className="text-[8px] font-bold text-slate-800 uppercase tracking-tighter">No Schedule</span>
                         </div>
-                      ))}
+                      )}
                     </div>
                   </div>
                 );
@@ -366,17 +405,17 @@ export default function SchedulerPage() {
         )}
 
         {selectedDay && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
-            <div className="bg-[#161b22] w-full max-w-sm rounded-[3rem] border border-slate-700 p-10 space-y-8">
-              <div className="text-center">
-                <h3 className="text-2xl font-black text-blue-400">Edit Schedule</h3>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-300">
+            <div className="bg-[#161b22] w-full max-w-sm rounded-[3rem] border border-slate-700 p-10 shadow-2xl space-y-8">
+              <div className="text-center space-y-1">
+                <h3 className="text-2xl font-black text-blue-400 tracking-tighter">Edit Schedule</h3>
                 <p className="text-slate-500 font-bold">{selectedDay.dateKey}</p>
               </div>
               <form onSubmit={(e) => {
                 e.preventDefault();
                 const fd = new FormData(e.currentTarget);
-                const h = fd.get('type') === 'off' ? 0 : Number(fd.get('hours')) || 0;
-                const finalH = getAdjustedHours(selectedDay.dateKey, h);
+                const inputH = fd.get('type') === 'off' ? 0 : Number(fd.get('hours')) || 0;
+                const finalH = getAdjustedHours(selectedDay.dateKey, inputH);
                 saveState({
                   exceptions: { ...state.exceptions, [selectedDay.dateKey]: finalH },
                   startExceptions: { ...state.startExceptions, [selectedDay.dateKey]: fd.get('start') },
@@ -385,19 +424,19 @@ export default function SchedulerPage() {
                 setSelectedDay(null);
               }} className="space-y-6">
                 <div className="flex gap-2 p-1.5 bg-slate-900 rounded-2xl border border-slate-800">
-                  <label className="flex-1"><input type="radio" name="type" value="work" defaultChecked={selectedDay.hours > 0} className="peer hidden" /><div className="text-center py-2.5 rounded-xl text-xs font-black cursor-pointer peer-checked:bg-blue-600 peer-checked:text-white text-slate-600">Work</div></label>
-                  <label className="flex-1"><input type="radio" name="type" value="off" defaultChecked={selectedDay.hours === 0} className="peer hidden" /><div className="text-center py-2.5 rounded-xl text-xs font-black cursor-pointer peer-checked:bg-red-600 peer-checked:text-white text-slate-600">Off</div></label>
+                  <label className="flex-1"><input type="radio" name="type" value="work" defaultChecked={selectedDay.hours > 0} className="peer hidden" /><div className="text-center py-2.5 rounded-xl text-xs font-black cursor-pointer peer-checked:bg-blue-600 peer-checked:text-white text-slate-600 transition-all">Work</div></label>
+                  <label className="flex-1"><input type="radio" name="type" value="off" defaultChecked={selectedDay.hours === 0} className="peer hidden" /><div className="text-center py-2.5 rounded-xl text-xs font-black cursor-pointer peer-checked:bg-red-600 peer-checked:text-white text-slate-600 transition-all">Off</div></label>
                 </div>
-                <div className="space-y-4">
-                  <input name="hours" type="number" step="0.5" defaultValue={selectedDay.hours || 8} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm outline-none font-bold" placeholder="Hours" />
+                <div className="space-y-5">
+                  <input name="hours" type="number" step="0.5" defaultValue={selectedDay.hours || 8} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold" placeholder="Daily Hours" />
                   <div className="grid grid-cols-2 gap-4">
-                    <input name="start" type="time" defaultValue={selectedDay.start} className="bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm outline-none font-bold" />
-                    <select name="lunch" defaultValue={selectedDay.lunch} className="bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm outline-none font-bold appearance-none"><option value="0">0h</option><option value="0.5">0.5h</option><option value="1.0">1h</option></select>
+                    <input name="start" type="time" defaultValue={selectedDay.start} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold" />
+                    <select name="lunch" defaultValue={selectedDay.lunch} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold appearance-none"><option value="0">None</option><option value="0.5">30m</option><option value="1.0">1h</option></select>
                   </div>
                 </div>
-                <div className="flex gap-4">
-                  <button type="button" onClick={() => setSelectedDay(null)} className="flex-1 py-4 rounded-2xl bg-slate-800 font-black text-xs uppercase">Cancel</button>
-                  <button type="submit" className="flex-1 py-4 rounded-2xl bg-blue-600 font-black text-xs uppercase text-white shadow-xl shadow-blue-900/20">Save</button>
+                <div className="flex gap-4 pt-4">
+                  <button type="button" onClick={() => setSelectedDay(null)} className="flex-1 py-4 rounded-2xl bg-slate-800 font-black text-xs uppercase hover:bg-slate-700 transition-all">Cancel</button>
+                  <button type="submit" className="flex-1 py-4 rounded-2xl bg-blue-600 font-black text-xs uppercase hover:bg-blue-500 text-white transition-all shadow-xl shadow-blue-900/20">Save</button>
                 </div>
               </form>
             </div>
