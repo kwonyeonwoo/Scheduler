@@ -20,8 +20,9 @@ export default function SchedulerPage() {
   const calendarRef = useRef(null);
   const [user, setUser] = useState(null);
   const [authMode, setAuthMode] = useState('login'); 
-  const [email, setEmail] = useState('');
+  const [emailId, setEmailId] = useState('');
   const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState(''); // 회원가입 시 사용자 이름
   const [authError, setAuthError] = useState('');
 
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -40,10 +41,9 @@ export default function SchedulerPage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [viewMode, setViewMode] = useState('personal');
 
-  // Helper to get consistent Doc ID from user (User ID prefix)
+  // Helper to get Doc ID (Email ID only)
   const getDocId = (u) => {
     if (!u) return null;
-    // 사용자 ID (이메일 앞부분)를 우선적으로 사용
     return u.email.split('@')[0];
   };
 
@@ -68,44 +68,34 @@ export default function SchedulerPage() {
     return () => unsub();
   }, []);
 
-  // 2. Data Sync (Multi-Path Recovery)
+  // 2. Data Sync (Always use Email ID as Doc ID)
   useEffect(() => {
     if (!user) return;
-    
-    const tryIds = [user.uid, user.email, user.email.split('@')[0]];
-    const unsubs = [];
+    const docId = getDocId(user);
+    const unsub = onSnapshot(doc(db, "schedules", docId), (docSnap) => {
+      if (docSnap.exists() && !docSnap.metadata.hasPendingWrites) {
+        const data = docSnap.data();
+        const normalize = (obj) => {
+          if (!obj) return {};
+          const newObj = {};
+          Object.keys(obj).forEach(key => {
+            const numKey = parseInt(key, 10);
+            newObj[isNaN(numKey) ? key : numKey] = obj[key];
+          });
+          return newObj;
+        };
 
-    // 모든 가능한 ID에서 데이터를 시도하여 하나라도 있으면 로드
-    tryIds.forEach(id => {
-      if (!id) return;
-      const unsub = onSnapshot(doc(db, "schedules", id), (docSnap) => {
-        if (docSnap.exists() && !docSnap.metadata.hasPendingWrites) {
-          console.log(`Data found at ID: ${id}`);
-          const data = docSnap.data();
-          const normalize = (obj) => {
-            if (!obj) return {};
-            const newObj = {};
-            Object.keys(obj).forEach(key => {
-              const numKey = parseInt(key, 10);
-              newObj[isNaN(numKey) ? key : numKey] = obj[key];
-            });
-            return newObj;
-          };
-
-          setState(prev => ({
-            ...prev,
-            ...data,
-            defaults: normalize(data.defaults) || prev.defaults,
-            startDefaults: normalize(data.startDefaults) || prev.startDefaults,
-            lunchDefaults: normalize(data.lunchDefaults) || prev.lunchDefaults,
-            name: data.name || prev.name 
-          }));
-        }
-      });
-      unsubs.push(unsub);
+        setState(prev => ({
+          ...prev,
+          ...data,
+          defaults: normalize(data.defaults) || prev.defaults,
+          startDefaults: normalize(data.startDefaults) || prev.startDefaults,
+          lunchDefaults: normalize(data.lunchDefaults) || prev.lunchDefaults,
+          name: data.name || prev.name 
+        }));
+      }
     });
-
-    return () => unsubs.forEach(un => un());
+    return () => unsub();
   }, [user]);
 
   useEffect(() => {
@@ -115,17 +105,16 @@ export default function SchedulerPage() {
       const s = [];
       qs.forEach((doc) => {
         const data = doc.data();
-        const isTest = doc.id.toLowerCase().includes('test') || data.name?.toLowerCase().includes('test');
-        if (!isTest) {
+        if (!doc.id.toLowerCase().includes('test')) {
           s.push({ 
             id: doc.id, 
             ...data,
-            name: data.name || data.email?.split('@')[0] || `User(${doc.id.slice(0,5)})`
+            name: data.name || doc.id // 사용자이름 우선, 없으면 ID 표시
           });
         }
       });
       setTeamSchedules(s);
-    }, (err) => console.error("Team sync error:", err));
+    });
     return () => unsub();
   }, [viewMode]);
 
@@ -133,23 +122,26 @@ export default function SchedulerPage() {
   const handleAuth = async (e) => {
     e.preventDefault();
     setAuthError('');
-    // 기존에 gmail로 가입했을 가능성이 높으므로 자동 도메인 수정을 유연하게 처리
-    const finalEmail = email.includes('@') ? email : `${email}@gmail.com`;
+    const finalEmail = emailId.includes('@') ? emailId : `${emailId}@gmail.com`;
     try {
       if (authMode === 'login') {
         await signInWithEmailAndPassword(auth, finalEmail, password);
       } else {
-        await createUserWithEmailAndPassword(auth, finalEmail, password);
+        // 회원가입
+        const userCredential = await createUserWithEmailAndPassword(auth, finalEmail, password);
+        const newUser = userCredential.user;
+        // 가입 직후 사용자 이름을 포함하여 초기 데이터베이스 생성
+        const docId = finalEmail.split('@')[0];
+        await setDoc(doc(db, "schedules", docId), {
+          name: displayName,
+          email: finalEmail,
+          defaults: { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
+          exceptions: {},
+          createdAt: new Date().toISOString()
+        });
       }
     } catch (err) {
-      // 실패 시 scheduler.com 도메인으로 재시도 (계정 마이그레이션 대비)
-      try {
-        if (!email.includes('@')) {
-          await signInWithEmailAndPassword(auth, `${email}@scheduler.com`, password);
-        } else { throw err; }
-      } catch (innerErr) {
-        setAuthError('Authentication failed. Check your ID/PW.');
-      }
+      setAuthError('ID/PW를 확인해 주세요.');
     }
   };
 
@@ -224,31 +216,20 @@ export default function SchedulerPage() {
     if (!user) return;
     setIsSyncing(true);
     setState(prev => ({ ...prev, ...updates }));
-    
-    // 사용자가 요청한 "사용자 ID" (이메일 앞부분)로 먼저 시도
-    const loginId = user.email.split('@')[0];
-    const docIds = [loginId, user.uid]; // 순차적으로 시도
-
-    let success = false;
-    for (const id of docIds) {
-      try {
-        await setDoc(doc(db, "schedules", id), {
-          ...updates,
-          email: user.email,
-          updatedAt: new Date().toISOString()
-        }, { merge: true });
-        console.log(`Saved successfully to: ${id}`);
-        success = true;
-        break; 
-      } catch (e) {
-        console.warn(`Failed to save to ${id}, trying next...`);
-      }
+    try {
+      const docId = getDocId(user);
+      await setDoc(doc(db, "schedules", docId), {
+        ...updates,
+        email: user.email,
+        name: updates.name || state.name,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    } catch (e) {
+      console.error("Save failed:", e);
+      alert("데이터 저장 실패! 관리자에게 문의하세요.");
+    } finally {
+      setIsSyncing(false);
     }
-
-    if (!success) {
-      alert("Save failed! Please check your ID and permissions.");
-    }
-    setIsSyncing(false);
   };
 
   if (!user) {
@@ -260,8 +241,11 @@ export default function SchedulerPage() {
             <p className="text-slate-500 text-sm font-bold">Smart Work Scheduler</p>
           </div>
           <form onSubmit={handleAuth} className="space-y-4">
-            <input type="text" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold" placeholder="User ID" />
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold" placeholder="Password" />
+            <input type="text" value={emailId} onChange={(e) => setEmailId(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold shadow-inner" placeholder="Email ID" />
+            {authMode === 'signup' && (
+              <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold shadow-inner animate-in slide-in-from-top-2 duration-300" placeholder="Display Name (Your Name)" />
+            )}
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold shadow-inner" placeholder="Password" />
             <button type="submit" className="w-full py-5 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-blue-900/20 transition-all">
               {authMode === 'login' ? 'Login' : 'Join'}
             </button>
@@ -285,11 +269,8 @@ export default function SchedulerPage() {
               <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400 tracking-tight">TIME KEEPER</h1>
               <button onClick={handleLogout} className="text-[10px] font-black bg-slate-800 px-2 py-1 rounded-lg text-slate-500 hover:text-red-400 transition-all">LOGOUT</button>
             </div>
-            <div className="text-slate-400 font-bold text-xs flex flex-col gap-1">
-              <div>Email: {user.email}</div>
-              <div className="text-blue-500/70">UID: {user.uid}</div>
-              <div className="text-purple-500/70">ID: {user.email.split('@')[0]}</div>
-            </div>
+            <div className="text-slate-400 font-bold text-xs">User ID: <span className="text-blue-400">{getDocId(user)}</span></div>
+            <div className="text-slate-400 font-bold text-xs">Name: <span className="text-purple-400">{state.name || 'Set Name below'}</span></div>
           </div>
           <div className="flex flex-col justify-center space-y-3">
             <div className="flex justify-between text-xs font-black text-slate-500 uppercase">
@@ -325,14 +306,14 @@ export default function SchedulerPage() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8" ref={calendarRef}>
             <aside className="lg:col-span-3 space-y-6">
               <div className="bg-slate-900/40 p-6 rounded-2xl border border-slate-800 space-y-4 shadow-xl">
-                <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">User Profile</h3>
+                <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">Profile Setting</h3>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest px-1">Display Name</label>
                   <input type="text" value={state.name || ''} onChange={(e) => {
                     const newName = e.target.value;
                     setState(prev => ({ ...prev, name: newName }));
                     saveState({ name: newName });
-                  }} className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-xs focus:border-blue-500 outline-none font-bold" placeholder="Enter name" />
+                  }} className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-xs focus:border-blue-500 outline-none font-bold" placeholder="Your Name" />
                 </div>
               </div>
 
