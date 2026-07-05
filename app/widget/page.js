@@ -48,12 +48,12 @@ export default function WidgetPage() {
   if (error) return <div className="p-4 text-center text-red-400 text-xs font-black">{error}</div>;
 
   return (
-    <div className="min-h-screen bg-[#0d1117] p-2 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-50 text-slate-900 p-2 flex flex-col font-sans">
       <div className="flex justify-between items-center mb-3 px-2">
-        <h2 className="text-lg font-black text-white tracking-tighter">{month + 1}월 현황</h2>
+        <h2 className="text-lg font-black text-slate-900 tracking-tighter">{month + 1}월 현황</h2>
         <div className="text-right">
-          <div className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{calendarData.totalAccHours.toFixed(1)} / 80h</div>
-          <div className="w-20 h-1 bg-slate-800 rounded-full mt-0.5 overflow-hidden">
+          <div className="text-[10px] font-black text-blue-700 tracking-widest">인정 {calendarData.totalAccHours.toFixed(1)}h</div>
+          <div className="w-20 h-1 bg-slate-200 rounded-full mt-0.5 overflow-hidden">
             <div className="h-full bg-blue-500" style={{ width: `${(calendarData.totalAccHours / 80) * 100}%` }} />
           </div>
         </div>
@@ -64,11 +64,11 @@ export default function WidgetPage() {
           <div key={d} className={`text-center text-[8px] font-black uppercase ${idx === 0 ? 'text-red-500/50' : idx === 6 ? 'text-blue-500/50' : 'text-slate-600'}`}>{d}</div>
         ))}
         {calendarData.days.map((d, i) => (
-          <div key={i} className={`aspect-square rounded-lg border flex flex-col items-center justify-center ${!d ? 'bg-transparent border-transparent' : 'bg-slate-900/60 border-slate-800/50'}`}>
+          <div key={i} className={`aspect-square rounded-lg border flex flex-col items-center justify-center ${!d ? 'bg-transparent border-transparent' : 'bg-white border-slate-200'}`}>
             {d && (
               <>
                 <span className={`text-[8px] font-bold mb-0.5 ${d.dayOfWeek === 0 ? 'text-red-500/60' : d.dayOfWeek === 6 ? 'text-blue-500/60' : 'text-slate-500'}`}>{d.day}</span>
-                {d.effectiveHours > 0 && <div className="text-[10px] font-black text-blue-400">{d.effectiveHours}</div>}
+                {d.effectiveHours > 0 && <div className="text-[10px] font-black text-blue-700">{d.effectiveHours}</div>}
               </>
             )}
           </div>

@@ -115,7 +115,7 @@ test('the requested 6-10, 13-16, and 25 pattern preserves all 80 entered hours',
   assert.equal(day25.effectiveHours, 8);
 });
 
-test('requested hours remain visible even when a statutory cap reduces recognized hours', () => {
+test('requested hours remain stored even when a statutory cap reduces recognized hours', () => {
   const schedule = normalizeSchedule({
     semesterEndDate: '2026-06-30',
     defaults: { 0: 0, 1: 8, 2: 8, 3: 8, 4: 8, 5: 8, 6: 0 },
