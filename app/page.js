@@ -51,6 +51,7 @@ export default function SchedulerPage() {
   const [rangeStartTime, setRangeStartTime] = useState('09:00');
   const [rangeLunch, setRangeLunch] = useState('1.0');
   const [weekdaysOnly, setWeekdaysOnly] = useState(true);
+  const [mobileEntryOpen, setMobileEntryOpen] = useState(false);
 
   // 1. Auth Sync
   useEffect(() => {
@@ -254,7 +255,7 @@ export default function SchedulerPage() {
     return saveQueueRef.current;
   };
 
-  const applyDateRange = (asOff = false) => {
+  const applyDateRange = (asOff = false, closeMobile = false) => {
     if (!rangeStart || !rangeEnd || rangeStart > rangeEnd) {
       setSyncError('시작일과 종료일을 올바르게 선택해 주세요.');
       return;
@@ -281,6 +282,7 @@ export default function SchedulerPage() {
 
     saveState({ exceptions, startExceptions, lunchExceptions });
     setSyncError('');
+    if (closeMobile) setMobileEntryOpen(false);
   };
 
   if (!isFirebaseConfigured) {
@@ -375,7 +377,7 @@ export default function SchedulerPage() {
 
         {viewMode === 'personal' ? (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            <aside className="lg:col-span-3 space-y-6">
+            <aside className="order-2 lg:order-1 lg:col-span-3 space-y-6">
               <div className="bg-white p-6 rounded-2xl border border-blue-200 space-y-4 shadow">
                 <h3 className="text-xs font-black text-blue-700 uppercase tracking-widest">국가근로 설정</h3>
                 <label className="block space-y-2">
@@ -494,32 +496,32 @@ export default function SchedulerPage() {
               </div>
             </aside>
 
-            <main className="lg:col-span-9 space-y-4">
+            <main className="order-1 lg:order-2 lg:col-span-9 space-y-4">
               <div className="flex justify-center items-center gap-8 mb-2">
                 <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))} className="text-slate-500 hover:text-slate-900 transition-all text-xl">←</button>
                 <h2 className="text-2xl font-black tracking-tighter text-slate-900">{year}년 {month + 1}월</h2>
                 <button onClick={() => setCurrentDate(new Date(year, month + 1, 1))} className="text-slate-500 hover:text-slate-900 transition-all text-xl">→</button>
               </div>
 
-              <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow">
-                <div className="grid grid-cols-7 mb-6">
+              <div className="bg-white p-2 sm:p-6 rounded-2xl sm:rounded-[2.5rem] border border-slate-200 shadow">
+                <div className="grid grid-cols-7 mb-2 sm:mb-6">
                   {DAYS_KOREAN.map((d, idx) => (
                     <div key={d} className={`text-center text-[10px] font-black uppercase tracking-widest ${idx === 0 ? 'text-red-500/50' : idx === 6 ? 'text-blue-500/50' : 'text-slate-600'}`}>{d}</div>
                   ))}
                 </div>
-                <div className="grid grid-cols-7 gap-3">
+                <div className="grid grid-cols-7 gap-1 sm:gap-3">
                   {calendarData.days.map((d, i) => (
-                    <div key={i} onClick={() => d && setSelectedDay(d)} className={`aspect-square rounded-[1.5rem] border transition-all relative flex flex-col items-center justify-center ${!d ? 'bg-transparent border-transparent' : 'bg-slate-50 border-slate-200 hover:border-blue-400 hover:bg-blue-50 cursor-pointer'} ${d?.type === 'holiday' ? 'opacity-50' : ''} ${d?.type === 'capped' ? 'ring-2 ring-amber-300 border-amber-400' : ''}`}>
+                    <div key={i} onClick={() => d && setSelectedDay(d)} className={`aspect-square rounded-lg sm:rounded-[1.5rem] border transition-all relative flex flex-col items-center justify-center ${!d ? 'bg-transparent border-transparent' : 'bg-slate-50 border-slate-200 hover:border-blue-400 hover:bg-blue-50 cursor-pointer'} ${d?.type === 'holiday' ? 'opacity-50' : ''} ${d?.type === 'capped' ? 'ring-2 ring-amber-300 border-amber-400' : ''}`}>
                       {d && (
                         <>
-                          <span className={`absolute top-3 left-4 text-[11px] font-black ${d.holidayName || d.dayOfWeek === 0 ? 'text-red-500/80' : d.dayOfWeek === 6 ? 'text-blue-500/60' : 'text-slate-500'}`}>{d.day}</span>
+                          <span className={`absolute top-1 left-1 sm:top-3 sm:left-4 text-[9px] sm:text-[11px] font-black ${d.holidayName || d.dayOfWeek === 0 ? 'text-red-500/80' : d.dayOfWeek === 6 ? 'text-blue-500/60' : 'text-slate-500'}`}>{d.day}</span>
                           {d.effectiveHours > 0 ? (
                             <div className="text-center">
-                              <div className={`text-sm md:text-lg font-black ${d.type === 'default' ? 'text-blue-700' : 'text-purple-700'}`}>
+                              <div className={`text-[11px] sm:text-sm md:text-lg font-black ${d.type === 'default' ? 'text-blue-700' : 'text-purple-700'}`}>
                                 {Number(d.effectiveHours).toFixed(1)}
                               </div>
-                              <div className="text-[8px] font-bold text-slate-500">인정시간</div>
-                              <div className="text-[9px] text-slate-600 font-bold">{d.start}{d.end ? ` ~ ${d.end}` : ''}</div>
+                              <div className="hidden sm:block text-[8px] font-bold text-slate-500">인정시간</div>
+                              <div className="hidden sm:block text-[9px] text-slate-600 font-bold">{d.start}{d.end ? ` ~ ${d.end}` : ''}</div>
                             </div>
                           ) : (
                             d.holidayName && <div className="text-[10px] font-black text-red-500/40 uppercase tracking-tighter mt-4">Holiday</div>
@@ -567,6 +569,86 @@ export default function SchedulerPage() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {viewMode === 'personal' && (
+          <button
+            type="button"
+            onClick={() => setMobileEntryOpen(true)}
+            className="lg:hidden fixed z-30 bottom-[calc(1rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 min-w-40 rounded-full bg-blue-600 px-7 py-4 text-sm font-black text-white shadow-2xl shadow-blue-300/70 active:bg-blue-700"
+          >
+            ＋ 일정 입력
+          </button>
+        )}
+
+        {mobileEntryOpen && (
+          <div className="lg:hidden fixed inset-0 z-50 bg-slate-50 text-slate-900 overflow-y-auto">
+            <div className="min-h-full px-5 pt-[calc(1.25rem+env(safe-area-inset-top))] pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <p className="text-xs font-bold text-blue-600">국가근로 일정</p>
+                  <h2 className="text-2xl font-black">일정 입력</h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMobileEntryOpen(false)}
+                  aria-label="일정 입력 닫기"
+                  className="w-11 h-11 rounded-full bg-white border border-slate-200 text-xl font-bold shadow-sm"
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                <section className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-4">
+                  <h3 className="text-sm font-black">날짜 선택</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="space-y-2">
+                      <span className="text-xs font-bold text-slate-600">시작일</span>
+                      <input type="date" value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm" />
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-xs font-bold text-slate-600">종료일</span>
+                      <input type="date" value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm" />
+                    </label>
+                  </div>
+                  <label className="flex min-h-11 items-center gap-3 rounded-xl bg-slate-50 px-3 text-sm font-bold text-slate-700">
+                    <input type="checkbox" checked={weekdaysOnly} onChange={(e) => setWeekdaysOnly(e.target.checked)} className="w-5 h-5" />
+                    평일에만 적용
+                  </label>
+                </section>
+
+                <section className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-4">
+                  <h3 className="text-sm font-black">근무시간 선택</h3>
+                  <label className="block space-y-2">
+                    <span className="text-xs font-bold text-slate-600">근무시간</span>
+                    <input type="number" min="0" max="8" step="0.5" value={rangeHours} onChange={(e) => setRangeHours(clampHours(e.target.value))} className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base font-bold" />
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="space-y-2">
+                      <span className="text-xs font-bold text-slate-600">시작시간</span>
+                      <input type="time" value={rangeStartTime} onChange={(e) => setRangeStartTime(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm" />
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-xs font-bold text-slate-600">휴게시간</span>
+                      <select value={rangeLunch} onChange={(e) => setRangeLunch(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm">
+                        <option value="0">없음</option>
+                        <option value="0.5">30분</option>
+                        <option value="1.0">1시간</option>
+                      </select>
+                    </label>
+                  </div>
+                </section>
+
+                {syncError && <p role="alert" className="rounded-xl bg-red-50 border border-red-200 p-3 text-xs font-bold text-red-700">{syncError}</p>}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <button type="button" onClick={() => applyDateRange(true, true)} className="min-h-14 rounded-2xl border border-slate-300 bg-white text-sm font-black text-red-600">휴무로 적용</button>
+                  <button type="button" onClick={() => applyDateRange(false, true)} className="min-h-14 rounded-2xl bg-blue-600 text-sm font-black text-white shadow-lg shadow-blue-200">근무로 적용</button>
+                </div>
+              </div>
             </div>
           </div>
         )}
