@@ -14,6 +14,8 @@ const schedule = (ownerUid) => ({
   ownerUid,
   legacyId: null,
   semesterEndDate: '2026-06-30',
+  intensiveWork: false,
+  intensiveStartDate: '',
   workplaceType: 'offCampus',
   name: '테스트 사용자',
   defaults: { 0: 0, 1: 8, 2: 8, 3: 8, 4: 8, 5: 8, 6: 0 },
@@ -73,4 +75,20 @@ test('invalid national work-study settings are rejected', async () => {
     ...schedule('alice'),
     semesterEndDate: 20260731,
   }));
+  await assertFails(setDoc(doc(database, 'schedules', 'alice'), {
+    ...schedule('alice'),
+    intensiveWork: 'yes',
+  }));
+  await assertFails(setDoc(doc(database, 'schedules', 'alice'), {
+    ...schedule('alice'),
+    intensiveStartDate: 20260720,
+  }));
+});
+
+test('older clients without intensive-work fields remain write-compatible during rollout', async () => {
+  const database = environment.authenticatedContext('alice').firestore();
+  const legacySchedule = schedule('alice');
+  delete legacySchedule.intensiveWork;
+  delete legacySchedule.intensiveStartDate;
+  await assertSucceeds(setDoc(doc(database, 'schedules', 'alice'), legacySchedule));
 });

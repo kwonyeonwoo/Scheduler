@@ -11,11 +11,17 @@ service cloud.firestore {
         && userId == request.auth.uid
         && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.semesterEndDate is string
+        && (!('intensiveWork' in request.resource.data)
+          || request.resource.data.intensiveWork is bool)
+        && (!('intensiveStartDate' in request.resource.data)
+          || request.resource.data.intensiveStartDate is string)
         && request.resource.data.workplaceType in ['onCampus', 'offCampus']
         && request.resource.data.keys().hasOnly([
           'ownerUid',
           'legacyId',
           'semesterEndDate',
+          'intensiveWork',
+          'intensiveStartDate',
           'workplaceType',
           'name',
           'defaults',

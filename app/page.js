@@ -7,9 +7,9 @@ import {
   DAYS_KOREAN,
   EMPTY_SCHEDULE,
   MAX_DAILY_HOURS,
+  MAX_MONTHLY_HOURS,
+  MAX_WEEKLY_HOURS,
   SEMESTER_MAX_HOURS,
-  TERM_WEEKLY_HOURS,
-  VACATION_WEEKLY_HOURS,
   calculateMonth,
   clampHours,
   normalizeSchedule,
@@ -388,6 +388,31 @@ export default function SchedulerPage() {
                   />
                 </label>
                 <label className="block space-y-2">
+                  <span className="text-[10px] font-bold text-slate-500">집중근로</span>
+                  <select
+                    value={state.intensiveWork ? 'yes' : 'no'}
+                    onChange={(e) => saveState({ intensiveWork: e.target.value === 'yes' })}
+                    className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-xs focus:border-blue-500 outline-none"
+                  >
+                    <option value="no">무 · 월 80시간 / 주 40시간</option>
+                    <option value="yes">유 · 주 40시간</option>
+                  </select>
+                </label>
+                {state.intensiveWork && (
+                  <label className="block space-y-2">
+                    <span className="text-[10px] font-bold text-slate-500">집중근로 시작일</span>
+                    <input
+                      type="date"
+                      value={state.intensiveStartDate}
+                      onChange={(e) => saveState({ intensiveStartDate: e.target.value })}
+                      className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-xs focus:border-blue-500 outline-none"
+                    />
+                    {!state.intensiveStartDate && (
+                      <span className="block text-[9px] text-amber-400">시작일을 정하기 전에는 일반근로 제한이 적용됩니다.</span>
+                    )}
+                  </label>
+                )}
+                <label className="block space-y-2">
                   <span className="text-[10px] font-bold text-slate-500">근로 유형</span>
                   <select
                     value={state.workplaceType}
@@ -399,8 +424,10 @@ export default function SchedulerPage() {
                   </select>
                 </label>
                 <div className="rounded-xl bg-blue-950/20 border border-blue-900/30 p-3 text-[10px] leading-5 text-slate-400">
-                  1일 8시간 · 월 80시간<br />
-                  학기중 주 {TERM_WEEKLY_HOURS}시간 · 방학중 주 {VACATION_WEEKLY_HOURS}시간<br />
+                  1일 {MAX_DAILY_HOURS}시간 · 주 {MAX_WEEKLY_HOURS}시간<br />
+                  {state.intensiveWork && state.intensiveStartDate
+                    ? `${state.intensiveStartDate}부터 집중근로: 월 제한 없음`
+                    : `일반근로: 월 ${MAX_MONTHLY_HOURS}시간`}<br />
                   학기당 최대 {SEMESTER_MAX_HOURS}시간
                 </div>
               </div>

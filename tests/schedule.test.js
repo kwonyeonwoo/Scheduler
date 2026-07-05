@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 
 import {
   MAX_MONTHLY_HOURS,
-  TERM_WEEKLY_HOURS,
-  VACATION_WEEKLY_HOURS,
+  MAX_WEEKLY_HOURS,
   WAGES,
   calculateMonth,
   clampHours,
   getEndTime,
   getWeeklyLimit,
+  isIntensiveWorkDate,
   normalizeSchedule,
 } from '../app/lib/schedule.js';
 import { getHoliday } from '../app/lib/holidays.js';
@@ -56,24 +56,44 @@ test('holidays are excluded unless the user explicitly overrides them', () => {
   assert.equal(overridden.days.find((day) => day?.dateKey === '2026-07-06').effectiveHours, 4);
 });
 
-test('term and vacation weeks use the national work-study weekly limits', () => {
+test('all work modes use the 40-hour weekly limit', () => {
   const schedule = normalizeSchedule({
-    semesterEndDate: '2026-07-15',
     defaults: { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
     exceptions: {
-      '2026-07-06': 8, '2026-07-07': 8, '2026-07-08': 8,
       '2026-07-20': 8, '2026-07-21': 8, '2026-07-22': 8,
       '2026-07-23': 8, '2026-07-24': 8,
     },
   });
-  assert.equal(getWeeklyLimit(schedule, '2026-07-15'), TERM_WEEKLY_HOURS);
-  assert.equal(getWeeklyLimit(schedule, '2026-07-16'), VACATION_WEEKLY_HOURS);
+  assert.equal(getWeeklyLimit(schedule, '2026-07-20'), MAX_WEEKLY_HOURS);
 
   const result = calculateMonth(schedule, new Date(2026, 6, 1));
-  const termWeek = result.days.filter((day) => day?.dateKey >= '2026-07-06' && day?.dateKey <= '2026-07-12');
-  const vacationWeek = result.days.filter((day) => day?.dateKey >= '2026-07-20' && day?.dateKey <= '2026-07-26');
-  assert.equal(termWeek.reduce((sum, day) => sum + day.effectiveHours, 0), 20);
-  assert.equal(vacationWeek.reduce((sum, day) => sum + day.effectiveHours, 0), 40);
+  const week = result.days.filter((day) => day?.dateKey >= '2026-07-20' && day?.dateKey <= '2026-07-26');
+  assert.equal(week.reduce((sum, day) => sum + day.effectiveHours, 0), 40);
+});
+
+test('intensive work removes the monthly cap only from its configured start date', () => {
+  const schedule = normalizeSchedule({
+    intensiveWork: true,
+    intensiveStartDate: '2026-07-20',
+    defaults: { 0: 0, 1: 8, 2: 8, 3: 8, 4: 8, 5: 8, 6: 0 },
+  });
+  const result = calculateMonth(schedule, new Date(2026, 6, 1));
+  const startDay = result.days.find((day) => day?.dateKey === '2026-07-20');
+
+  assert.equal(isIntensiveWorkDate(schedule, '2026-07-19'), false);
+  assert.equal(isIntensiveWorkDate(schedule, '2026-07-20'), true);
+  assert.equal(startDay.intensiveWork, true);
+  assert.equal(result.totalAccHours, 160);
+});
+
+test('intensive work without a start date keeps the 80-hour monthly cap', () => {
+  const schedule = normalizeSchedule({
+    intensiveWork: true,
+    intensiveStartDate: '',
+    defaults: { 0: 0, 1: 8, 2: 8, 3: 8, 4: 8, 5: 8, 6: 0 },
+  });
+  const result = calculateMonth(schedule, new Date(2026, 6, 1));
+  assert.equal(result.totalAccHours, MAX_MONTHLY_HOURS);
 });
 
 test('the requested 6-10, 13-16, and 25 pattern preserves all 80 entered hours', () => {

@@ -1,7 +1,6 @@
 export const MAX_MONTHLY_HOURS = 80;
 export const MAX_DAILY_HOURS = 8;
-export const TERM_WEEKLY_HOURS = 20;
-export const VACATION_WEEKLY_HOURS = 40;
+export const MAX_WEEKLY_HOURS = 40;
 export const SEMESTER_MAX_HOURS = 640;
 export const WAGES = {
   onCampus: 10320,
@@ -13,6 +12,8 @@ export const EMPTY_SCHEDULE = {
   name: '',
   legacyId: null,
   semesterEndDate: '',
+  intensiveWork: false,
+  intensiveStartDate: '',
   workplaceType: 'offCampus',
   defaults: { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
   exceptions: {},
@@ -40,6 +41,8 @@ export function normalizeSchedule(data = {}) {
     name: typeof data.name === 'string' ? data.name : '',
     legacyId: typeof data.legacyId === 'string' ? data.legacyId : null,
     semesterEndDate: typeof data.semesterEndDate === 'string' ? data.semesterEndDate : '',
+    intensiveWork: data.intensiveWork === true,
+    intensiveStartDate: typeof data.intensiveStartDate === 'string' ? data.intensiveStartDate : '',
     workplaceType: data.workplaceType === 'onCampus' ? 'onCampus' : 'offCampus',
     defaults: Object.fromEntries(
       Object.entries(normalizeWeekMap(data.defaults, EMPTY_SCHEDULE.defaults))
@@ -64,11 +67,14 @@ export function getEndTime(startTime, effectiveHours, lunchHours) {
   return `${String(Math.floor(normalized / 60)).padStart(2, '0')}:${String(normalized % 60).padStart(2, '0')}`;
 }
 
-export function getWeeklyLimit(schedule, dateKey) {
-  if (!schedule.semesterEndDate || dateKey <= schedule.semesterEndDate) {
-    return TERM_WEEKLY_HOURS;
-  }
-  return VACATION_WEEKLY_HOURS;
+export function getWeeklyLimit() {
+  return MAX_WEEKLY_HOURS;
+}
+
+export function isIntensiveWorkDate(schedule, dateKey) {
+  return schedule.intensiveWork === true
+    && Boolean(schedule.intensiveStartDate)
+    && dateKey >= schedule.intensiveStartDate;
 }
 
 function getScheduledHours(schedule, date, getHoliday) {
@@ -113,9 +119,13 @@ export function calculateMonth(schedule, date, getHoliday = () => null) {
     if (holidayName && !hasException) scheduledHours = 0;
 
     const weeklyLimit = getWeeklyLimit(normalized, dateKey);
+    const intensiveWork = isIntensiveWorkDate(normalized, dateKey);
+    const monthlyRemaining = intensiveWork
+      ? Number.POSITIVE_INFINITY
+      : Math.max(0, MAX_MONTHLY_HOURS - totalAccHours);
     const effectiveHours = Math.min(
       scheduledHours,
-      Math.max(0, MAX_MONTHLY_HOURS - totalAccHours),
+      monthlyRemaining,
       Math.max(0, weeklyLimit - weeklyAccHours)
     );
     const type = holidayName && !hasException
@@ -143,7 +153,7 @@ export function calculateMonth(schedule, date, getHoliday = () => null) {
       dayOfWeek,
       holidayName,
       weeklyLimit,
-      periodType: normalized.semesterEndDate && dateKey > normalized.semesterEndDate ? 'vacation' : 'term',
+      intensiveWork,
     });
   }
 
