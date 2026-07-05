@@ -1,122 +1,167 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { auth, db } from './lib/firebase';
+import { auth, db, isFirebaseConfigured, missingFirebaseConfig } from './lib/firebase';
 import { getHoliday } from './lib/holidays';
+import {
+  DAYS_KOREAN,
+  EMPTY_SCHEDULE,
+  MAX_DAILY_HOURS,
+  calculateMonth,
+  clampHours,
+  getAdjustedHours,
+  normalizeSchedule,
+} from './lib/schedule';
 import { 
   onAuthStateChanged, 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
   signOut 
 } from 'firebase/auth';
-import { doc, onSnapshot, setDoc, collection, query, limit } from 'firebase/firestore';
-
-// --- Constants ---
-const MAX_MONTHLY_HOURS = 80;
-const HOURLY_WAGE = 12790;
-const DAYS_KOREAN = ['일', '월', '화', '수', '목', '금', '토'];
+import { collection, doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
 
 export default function SchedulerPage() {
-  const calendarRef = useRef(null);
   const [user, setUser] = useState(null);
   const [authMode, setAuthMode] = useState('login'); 
   const [emailId, setEmailId] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState(''); // 회원가입 시 사용자 이름
   const [authError, setAuthError] = useState('');
+  const [authReady, setAuthReady] = useState(!auth);
+  const [dataReady, setDataReady] = useState(false);
+  const [syncError, setSyncError] = useState('');
 
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [state, setState] = useState({
-    name: '',
-    defaults: { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
-    exceptions: {},
-    startDefaults: { 0: "09:00", 1: "09:00", 2: "09:00", 3: "09:00", 4: "09:00", 5: "09:00", 6: "09:00" },
-    startExceptions: {},
-    lunchDefaults: { 0: "1.0", 1: "1.0", 2: "1.0", 3: "1.0", 4: "1.0", 5: "1.0", 6: "1.0" },
-    lunchExceptions: {},
-  });
+  const [state, setState] = useState(() => normalizeSchedule(EMPTY_SCHEDULE));
+  const stateRef = useRef(normalizeSchedule(EMPTY_SCHEDULE));
+  const lastSavedStateRef = useRef(normalizeSchedule(EMPTY_SCHEDULE));
+  const saveQueueRef = useRef(Promise.resolve());
+  const saveRevisionRef = useRef(0);
+  const pendingSavesRef = useRef(0);
   
   const [teamSchedules, setTeamSchedules] = useState([]);
   const [selectedDay, setSelectedDay] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [viewMode, setViewMode] = useState('personal');
 
-  // Helper to get Doc ID (Email ID only)
-  const getDocId = (u) => {
-    if (!u) return null;
-    return u.email.split('@')[0];
-  };
-
   // 1. Auth Sync
   useEffect(() => {
+    if (!auth) {
+      return undefined;
+    }
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
+      setAuthReady(true);
+      setDataReady(!u);
       if (u) {
         setAuthError('');
       } else {
-        setState({
-          name: '',
-          defaults: { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
-          exceptions: {},
-          startDefaults: { 0: "09:00", 1: "09:00", 2: "09:00", 3: "09:00", 4: "09:00", 5: "09:00", 6: "09:00" },
-          startExceptions: {},
-          lunchDefaults: { 0: "1.0", 1: "1.0", 2: "1.0", 3: "1.0", 4: "1.0", 5: "1.0", 6: "1.0" },
-          lunchExceptions: {},
-        });
+        const empty = normalizeSchedule(EMPTY_SCHEDULE);
+        stateRef.current = empty;
+        lastSavedStateRef.current = empty;
+        setState(empty);
       }
     });
     return () => unsub();
   }, []);
 
-  // 2. Data Sync (Always use Email ID as Doc ID)
+  // 2. Data Sync (canonical document ID is the immutable Firebase UID)
   useEffect(() => {
-    if (!user) return;
-    const docId = getDocId(user);
-    const unsub = onSnapshot(doc(db, "schedules", docId), (docSnap) => {
-      if (docSnap.exists() && !docSnap.metadata.hasPendingWrites) {
-        const data = docSnap.data();
-        const normalize = (obj) => {
-          if (!obj) return {};
-          const newObj = {};
-          Object.keys(obj).forEach(key => {
-            const numKey = parseInt(key, 10);
-            newObj[isNaN(numKey) ? key : numKey] = obj[key];
-          });
-          return newObj;
-        };
+    if (!user || !db) return undefined;
+    let cancelled = false;
+    let unsubscribe = () => {};
+    const canonicalRef = doc(db, 'schedules', user.uid);
 
-        setState(prev => ({
-          ...prev,
-          ...data,
-          defaults: normalize(data.defaults) || prev.defaults,
-          startDefaults: normalize(data.startDefaults) || prev.startDefaults,
-          lunchDefaults: normalize(data.lunchDefaults) || prev.lunchDefaults,
-          name: data.name || prev.name 
-        }));
+    const startSync = async () => {
+      setDataReady(false);
+      setSyncError('');
+      try {
+        const canonicalSnap = await getDoc(canonicalRef);
+        if (!canonicalSnap.exists()) {
+          const legacyId = user.email?.split('@')[0];
+          let legacySnap = null;
+          if (legacyId) {
+            try {
+              legacySnap = await getDoc(doc(db, 'schedules', legacyId));
+            } catch (legacyError) {
+              // Strict UID-only rules can deny this optional compatibility read.
+              console.warn('Legacy schedule could not be read:', legacyError);
+            }
+          }
+          const migrated = normalizeSchedule(legacySnap?.exists() ? legacySnap.data() : EMPTY_SCHEDULE);
+          await setDoc(canonicalRef, {
+            ...migrated,
+            legacyId: legacySnap?.exists() ? legacyId : null,
+            ownerUid: user.uid,
+            createdAt: legacySnap?.data()?.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          });
+        }
+
+        if (cancelled) return;
+        unsubscribe = onSnapshot(canonicalRef, (snapshot) => {
+          if (!snapshot.exists() || snapshot.metadata.hasPendingWrites || pendingSavesRef.current > 0) return;
+          const normalized = normalizeSchedule(snapshot.data());
+          stateRef.current = normalized;
+          lastSavedStateRef.current = normalized;
+          setState(normalized);
+          setDataReady(true);
+          setSyncError('');
+        }, (error) => {
+          console.error('Schedule subscription failed:', error);
+          setSyncError('일정 데이터를 불러오지 못했습니다. 권한과 네트워크를 확인해 주세요.');
+          setDataReady(true);
+        });
+      } catch (error) {
+        console.error('Schedule initialization failed:', error);
+        setSyncError('기존 일정 데이터를 불러오거나 이전하지 못했습니다.');
+        setDataReady(true);
       }
-    });
-    return () => unsub();
+    };
+
+    startSync();
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, [user]);
 
   useEffect(() => {
     if (viewMode !== 'team') return;
-    const q = query(collection(db, "schedules"), limit(100));
-    const unsub = onSnapshot(q, (qs) => {
-      const s = [];
-      qs.forEach((doc) => {
-        const data = doc.data();
-        if (!doc.id.toLowerCase().includes('test')) {
-          s.push({ 
-            id: doc.id, 
-            ...data,
-            name: data.name || doc.id // 사용자이름 우선, 없으면 ID 표시
-          });
+    if (!db || !user) return undefined;
+    const unsub = onSnapshot(collection(db, 'schedules'), (snapshot) => {
+      const byOwner = new Map();
+      const documents = snapshot.docs.map((snapshotDoc) => ({
+        id: snapshotDoc.id,
+        data: snapshotDoc.data(),
+      }));
+      const migratedLegacyIds = new Set(
+        documents.map(({ data }) => data.ownerUid && data.legacyId).filter(Boolean)
+      );
+
+      documents.forEach(({ id, data }) => {
+        if (!data.ownerUid && migratedLegacyIds.has(id)) return;
+        const ownerKey = data.ownerUid || data.email || id;
+        const candidate = {
+          id,
+          ...normalizeSchedule(data),
+          name: data.name || '이름 없음',
+          ownerUid: data.ownerUid || null,
+          updatedAt: data.updatedAt || '',
+        };
+        const existing = byOwner.get(ownerKey);
+        if (!existing || candidate.ownerUid || candidate.updatedAt > existing.updatedAt) {
+          byOwner.set(ownerKey, candidate);
         }
       });
-      setTeamSchedules(s);
+      setTeamSchedules([...byOwner.values()].sort((a, b) => a.name.localeCompare(b.name, 'ko')));
+      setSyncError('');
+    }, (error) => {
+      console.error('Team subscription failed:', error);
+      setSyncError('팀 일정을 불러올 권한이 없습니다.');
     });
     return () => unsub();
-  }, [viewMode]);
+  }, [viewMode, user]);
 
   // 3. Auth Actions
   const handleAuth = async (e) => {
@@ -127,21 +172,23 @@ export default function SchedulerPage() {
       if (authMode === 'login') {
         await signInWithEmailAndPassword(auth, finalEmail, password);
       } else {
-        // 회원가입
         const userCredential = await createUserWithEmailAndPassword(auth, finalEmail, password);
         const newUser = userCredential.user;
-        // 가입 직후 사용자 이름을 포함하여 초기 데이터베이스 생성
-        const docId = finalEmail.split('@')[0];
-        await setDoc(doc(db, "schedules", docId), {
-          name: displayName,
-          email: finalEmail,
-          defaults: { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
-          exceptions: {},
+        const initialSchedule = normalizeSchedule({ ...EMPTY_SCHEDULE, name: displayName.trim() });
+        await setDoc(doc(db, 'schedules', newUser.uid), {
+          ...initialSchedule,
+          ownerUid: newUser.uid,
           createdAt: new Date().toISOString()
         });
       }
     } catch (err) {
-      setAuthError('ID/PW를 확인해 주세요.');
+      const messages = {
+        'auth/email-already-in-use': '이미 사용 중인 ID입니다.',
+        'auth/invalid-credential': 'ID 또는 비밀번호가 올바르지 않습니다.',
+        'auth/weak-password': '비밀번호는 6자 이상이어야 합니다.',
+        'auth/too-many-requests': '시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.',
+      };
+      setAuthError(messages[err.code] || '로그인 처리에 실패했습니다. 잠시 후 다시 시도해 주세요.');
     }
   };
 
@@ -151,86 +198,70 @@ export default function SchedulerPage() {
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
 
-  const getEndTime = (startTime, duration, lunch) => {
-    if (!startTime || duration <= 0) return "";
-    const [h, m] = startTime.split(':').map(Number);
-    const totalMinutes = h * 60 + m + (Number(duration) + Number(lunch)) * 60;
-    const endH = Math.floor(totalMinutes / 60) % 24;
-    const endM = totalMinutes % 60;
-    return `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
-  };
-
-  const calendarData = useMemo(() => {
-    const y = currentDate.getFullYear();
-    const m = currentDate.getMonth();
-    const firstDay = new Date(y, m, 1);
-    const lastDay = new Date(y, m + 1, 0);
-    const days = [];
-    for (let i = 0; i < firstDay.getDay(); i++) days.push(null);
-    
-    let totalAccHours = 0;
-    for (let d = 1; d <= lastDay.getDate(); d++) {
-      const dateKey = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      const dayOfWeek = new Date(y, m, d).getDay();
-      const holidayName = getHoliday(dateKey);
-      
-      let scheduledHours = Number(state.exceptions[dateKey] !== undefined ? state.exceptions[dateKey] : state.defaults[dayOfWeek]) || 0;
-      if (holidayName && state.exceptions[dateKey] === undefined) scheduledHours = 0;
-
-      let effectiveHours = scheduledHours;
-      let type = state.exceptions[dateKey] !== undefined ? (scheduledHours === 0 ? 'holiday' : 'exception') : (scheduledHours === 0 && holidayName ? 'holiday' : 'default');
-      
-      if (totalAccHours + scheduledHours > MAX_MONTHLY_HOURS) {
-        effectiveHours = Math.max(0, MAX_MONTHLY_HOURS - totalAccHours);
-        if (scheduledHours > 0) type = 'capped';
-      }
-      
-      let start = state.startExceptions[dateKey] || state.startDefaults[dayOfWeek] || "09:00";
-      let lunch = Number(state.lunchExceptions[dateKey] || state.lunchDefaults[dayOfWeek] || 1.0);
-      const end = getEndTime(start, scheduledHours, lunch);
-      
-      totalAccHours += effectiveHours;
-      days.push({ day: d, dateKey, hours: scheduledHours, effectiveHours, start, end, lunch, type, dayOfWeek, holidayName });
-    }
-    return { days, totalAccHours, totalWage: Math.min(totalAccHours, MAX_MONTHLY_HOURS) * HOURLY_WAGE };
-  }, [currentDate, state]);
-
-  const getAdjustedHours = (dateKey, targetHours) => {
-    let dailyClamped = Math.max(0, Math.min(8, Number(targetHours) || 0));
-    const [y, m, d_str] = dateKey.split('-').map(Number);
-    const targetDay = d_str;
-    let precedingDaysTotal = 0;
-    for (let d = 1; d < targetDay; d++) {
-      const currentKey = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      const dayOfWeek = new Date(y, m - 1, d).getDay();
-      const holidayName = getHoliday(currentKey);
-      let h = Number(state.exceptions[currentKey] !== undefined ? state.exceptions[currentKey] : state.defaults[dayOfWeek]) || 0;
-      if (holidayName && state.exceptions[currentKey] === undefined) h = 0;
-      precedingDaysTotal += h;
-    }
-    const remainingMonthlyLimit = Math.max(0, MAX_MONTHLY_HOURS - precedingDaysTotal);
-    return Math.min(dailyClamped, remainingMonthlyLimit);
-  };
+  const calendarData = useMemo(
+    () => calculateMonth(state, currentDate, getHoliday),
+    [currentDate, state]
+  );
+  const teamCalendarById = useMemo(
+    () => new Map(teamSchedules.map((member) => [
+      member.id,
+      new Map(calculateMonth(member, currentDate, getHoliday).days.filter(Boolean).map((day) => [day.dateKey, day])),
+    ])),
+    [currentDate, teamSchedules]
+  );
 
   const saveState = async (updates) => {
-    if (!user) return;
+    if (!user || !db) return;
+    const revision = ++saveRevisionRef.current;
+    const nextState = normalizeSchedule({ ...stateRef.current, ...updates });
+    stateRef.current = nextState;
+    setState(nextState);
+    pendingSavesRef.current += 1;
     setIsSyncing(true);
-    setState(prev => ({ ...prev, ...updates }));
-    try {
-      const docId = getDocId(user);
-      await setDoc(doc(db, "schedules", docId), {
-        ...updates,
-        email: user.email,
-        name: updates.name || state.name,
-        updatedAt: new Date().toISOString()
-      }, { merge: true });
-    } catch (e) {
-      console.error("Save failed:", e);
-      alert("데이터 저장 실패! 관리자에게 문의하세요.");
-    } finally {
-      setIsSyncing(false);
-    }
+    setSyncError('');
+
+    saveQueueRef.current = saveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          await setDoc(doc(db, 'schedules', user.uid), {
+            ...nextState,
+            ownerUid: user.uid,
+            updatedAt: new Date().toISOString(),
+          });
+          lastSavedStateRef.current = nextState;
+        } catch (error) {
+          console.error('Save failed:', error);
+          if (saveRevisionRef.current === revision) {
+            stateRef.current = lastSavedStateRef.current;
+            setState(lastSavedStateRef.current);
+            setSyncError('저장에 실패하여 마지막 저장 상태로 되돌렸습니다.');
+          }
+        } finally {
+          pendingSavesRef.current = Math.max(0, pendingSavesRef.current - 1);
+          if (pendingSavesRef.current === 0) setIsSyncing(false);
+        }
+      });
+
+    return saveQueueRef.current;
   };
+
+  if (!isFirebaseConfigured) {
+    return (
+      <div className="min-h-screen bg-[#0d1117] text-slate-200 flex items-center justify-center p-6">
+        <div className="max-w-lg rounded-3xl border border-red-500/30 bg-red-950/20 p-8">
+          <h1 className="text-xl font-black text-red-300">Firebase 설정이 필요합니다</h1>
+          <p className="mt-3 text-sm text-slate-400">
+            누락된 환경변수: {missingFirebaseConfig.join(', ')}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!authReady || (user && !dataReady)) {
+    return <div className="min-h-screen bg-[#0d1117] flex items-center justify-center text-slate-500 font-bold">Loading schedule…</div>;
+  }
 
   if (!user) {
     return (
@@ -241,11 +272,12 @@ export default function SchedulerPage() {
             <p className="text-slate-500 text-sm font-bold">Smart Work Scheduler</p>
           </div>
           <form onSubmit={handleAuth} className="space-y-4">
-            <input type="text" value={emailId} onChange={(e) => setEmailId(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold shadow-inner" placeholder="Email ID" />
+            {authError && <p role="alert" className="rounded-xl border border-red-500/30 bg-red-950/30 px-4 py-3 text-xs font-bold text-red-300">{authError}</p>}
+            <input type="text" autoComplete="username" value={emailId} onChange={(e) => setEmailId(e.target.value.trim())} required className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold shadow-inner" placeholder="Email ID" />
             {authMode === 'signup' && (
-              <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold shadow-inner animate-in slide-in-from-top-2 duration-300" placeholder="Display Name (Your Name)" />
+              <input type="text" autoComplete="name" maxLength={40} value={displayName} onChange={(e) => setDisplayName(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold shadow-inner animate-in slide-in-from-top-2 duration-300" placeholder="Display Name (Your Name)" />
             )}
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold shadow-inner" placeholder="Password" />
+            <input type="password" autoComplete={authMode === 'login' ? 'current-password' : 'new-password'} minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold shadow-inner" placeholder="Password" />
             <button type="submit" className="w-full py-5 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-blue-900/20 transition-all">
               {authMode === 'login' ? 'Login' : 'Join'}
             </button>
@@ -269,8 +301,8 @@ export default function SchedulerPage() {
               <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400 tracking-tight">TIME KEEPER</h1>
               <button onClick={handleLogout} className="text-[10px] font-black bg-slate-800 px-2 py-1 rounded-lg text-slate-500 hover:text-red-400 transition-all">LOGOUT</button>
             </div>
-            <div className="text-slate-400 font-bold text-xs">User ID: <span className="text-blue-400">{getDocId(user)}</span></div>
-            <div className="text-slate-400 font-bold text-xs">Name: <span className="text-purple-400">{state.name || 'Set Name below'}</span></div>
+            <div className="text-slate-400 font-bold text-xs">User ID: <span className="text-blue-400">{user.email?.split('@')[0]}</span></div>
+            <div className="text-slate-400 font-bold text-xs">Name: <span className="text-purple-400">{state.name || '이름 없음'}</span></div>
           </div>
           <div className="flex flex-col justify-center space-y-3">
             <div className="flex justify-between text-xs font-black text-slate-500 uppercase">
@@ -299,11 +331,12 @@ export default function SchedulerPage() {
                 <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Syncing...</span>
               </div>
             )}
+            {syncError && <span role="alert" className="text-xs font-bold text-red-400">{syncError}</span>}
           </div>
         </div>
 
         {viewMode === 'personal' ? (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8" ref={calendarRef}>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <aside className="lg:col-span-3 space-y-6">
               <div className="bg-slate-900/40 p-6 rounded-2xl border border-slate-800 space-y-4 shadow-xl">
                 <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">Weekly Defaults</h3>
@@ -311,7 +344,16 @@ export default function SchedulerPage() {
                   {DAYS_KOREAN.map((day, idx) => (
                     <div key={day} className="flex items-center justify-between">
                       <span className={`text-xs font-bold ${idx === 0 ? 'text-red-500/70' : idx === 6 ? 'text-blue-500/70' : 'text-slate-500'}`}>{day}</span>
-                      <input type="number" step="0.5" value={state.defaults[idx]} onChange={(e) => saveState({ defaults: { ...state.defaults, [idx]: e.target.value }})} className="bg-slate-800/50 border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] w-14 text-center focus:border-blue-500 outline-none font-bold" />
+                      <input
+                        aria-label={`${day}요일 기본 근무시간`}
+                        type="number"
+                        step="0.5"
+                        min="0"
+                        max={MAX_DAILY_HOURS}
+                        value={state.defaults[idx]}
+                        onChange={(e) => saveState({ defaults: { ...state.defaults, [idx]: clampHours(e.target.value) } })}
+                        className="bg-slate-800/50 border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] w-14 text-center focus:border-blue-500 outline-none font-bold"
+                      />
                     </div>
                   ))}
                 </div>
@@ -375,14 +417,10 @@ export default function SchedulerPage() {
             <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
               {calendarData.days.map((d, i) => {
                 if (!d) return <div key={i} className="aspect-square bg-transparent border-transparent" />;
-                const workingMembers = teamSchedules.filter(m => {
-                  const h = Number(m.exceptions?.[d.dateKey] !== undefined ? m.exceptions[d.dateKey] : (m.defaults?.[d.dayOfWeek] || 0));
-                  return h > 0;
-                }).map(m => {
-                  const h = Number(m.exceptions?.[d.dateKey] !== undefined ? m.exceptions[d.dateKey] : (m.defaults?.[d.dayOfWeek] || 0));
-                  const start = m.startExceptions?.[d.dateKey] || m.startDefaults?.[d.dayOfWeek] || "09:00";
-                  return { name: m.name, start };
-                });
+                const workingMembers = teamSchedules.map((member) => {
+                  const memberDay = teamCalendarById.get(member.id)?.get(d.dateKey);
+                  return { name: member.name, day: memberDay };
+                }).filter((member) => member.day?.effectiveHours > 0);
 
                 return (
                   <div key={i} className="min-h-[120px] md:aspect-square rounded-[1.5rem] border bg-slate-900/40 border-slate-800/50 p-3 flex flex-col gap-2 relative overflow-hidden hover:border-slate-700 transition-all">
@@ -392,7 +430,7 @@ export default function SchedulerPage() {
                         workingMembers.map((m, idx) => (
                           <div key={idx} className="bg-slate-800/50 rounded-lg p-1.5 border border-slate-700/50 shadow-sm">
                             <span className="text-[10px] font-black text-blue-400 truncate block">{m.name}</span>
-                            <span className="text-[8px] font-bold text-slate-500">{m.start} ~</span>
+                            <span className="text-[8px] font-bold text-slate-500">{m.day.start} ~ {m.day.end}</span>
                           </div>
                         ))
                       ) : (
@@ -419,7 +457,7 @@ export default function SchedulerPage() {
                 e.preventDefault();
                 const fd = new FormData(e.currentTarget);
                 const inputH = fd.get('type') === 'off' ? 0 : Number(fd.get('hours')) || 0;
-                const finalH = getAdjustedHours(selectedDay.dateKey, inputH);
+                const finalH = getAdjustedHours(state, selectedDay.dateKey, inputH, getHoliday);
                 saveState({
                   exceptions: { ...state.exceptions, [selectedDay.dateKey]: finalH },
                   startExceptions: { ...state.startExceptions, [selectedDay.dateKey]: fd.get('start') },
@@ -432,7 +470,7 @@ export default function SchedulerPage() {
                   <label className="flex-1"><input type="radio" name="type" value="off" defaultChecked={selectedDay.hours === 0} className="peer hidden" /><div className="text-center py-2.5 rounded-xl text-xs font-black cursor-pointer peer-checked:bg-red-600 peer-checked:text-white text-slate-600 transition-all">Off</div></label>
                 </div>
                 <div className="space-y-5">
-                  <input name="hours" type="number" step="0.5" defaultValue={selectedDay.hours || 8} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold shadow-inner" placeholder="Daily Hours" />
+                  <input name="hours" type="number" step="0.5" min="0" max={MAX_DAILY_HOURS} defaultValue={selectedDay.hours || 8} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold shadow-inner" placeholder="Daily Hours" />
                   <div className="grid grid-cols-2 gap-4">
                     <input name="start" type="time" defaultValue={selectedDay.start} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold shadow-inner" />
                     <select name="lunch" defaultValue={selectedDay.lunch} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold appearance-none shadow-inner"><option value="0">None</option><option value="0.5">30m</option><option value="1.0">1h</option></select>
