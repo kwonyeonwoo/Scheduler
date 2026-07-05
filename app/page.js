@@ -332,18 +332,18 @@ export default function SchedulerPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans p-4 md:p-8">
-      <div className="max-w-6xl mx-auto space-y-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 bg-white p-8 rounded-3xl border border-slate-200 shadow-xl relative overflow-hidden">
-          <div className="space-y-2">
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans p-0 sm:p-4 md:p-8">
+      <div className="max-w-6xl mx-auto space-y-4 sm:space-y-8">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6 bg-white p-4 sm:p-8 rounded-none sm:rounded-3xl border-x-0 sm:border border-slate-200 shadow-sm sm:shadow-xl relative overflow-hidden">
+          <div className="col-span-2 lg:col-span-1 space-y-1 sm:space-y-2">
             <div className="flex items-center gap-3">
-              <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400 tracking-tight">TIME KEEPER</h1>
+              <h1 className="text-2xl sm:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400 tracking-tight">TIME KEEPER</h1>
               <button onClick={handleLogout} className="text-[10px] font-black bg-slate-100 px-2 py-1 rounded-lg text-slate-600 hover:text-red-600 transition-all">LOGOUT</button>
             </div>
             <div className="text-slate-600 font-bold text-xs">User ID: <span className="text-blue-600">{user.email?.split('@')[0]}</span></div>
             <div className="text-slate-600 font-bold text-xs">Name: <span className="text-purple-600">{state.name || '이름 없음'}</span></div>
           </div>
-          <div className="flex flex-col justify-center space-y-3">
+          <div className="flex flex-col justify-center space-y-2 sm:space-y-3">
             <div className="flex justify-between text-xs font-black text-slate-600">
               <span>인정 근로시간</span>
               <span className="text-blue-600">{calendarData.totalAccHours.toFixed(1)}h</span>
@@ -352,14 +352,14 @@ export default function SchedulerPage() {
               <div className={`h-full transition-all duration-1000 ${calendarData.totalAccHours >= 80 ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${Math.min(100, (calendarData.totalAccHours / 80) * 100)}%` }} />
             </div>
           </div>
-          <div className="bg-blue-500/5 rounded-2xl border border-blue-500/10 p-4 flex flex-col items-center justify-center text-center">
+          <div className="bg-blue-500/5 rounded-2xl border border-blue-500/10 p-3 sm:p-4 flex flex-col items-center justify-center text-center">
             <span className="text-[10px] font-black text-blue-500/70 uppercase mb-1">Estimated Wage</span>
-            <div className="text-2xl font-black text-blue-700 tracking-tighter">₩ {calendarData.totalWage.toLocaleString()}</div>
+            <div className="text-lg sm:text-2xl font-black text-blue-700 tracking-tighter">₩ {calendarData.totalWage.toLocaleString()}</div>
             <div className="text-[9px] text-slate-500 mt-1">시급 ₩{calendarData.hourlyWage.toLocaleString()}</div>
           </div>
         </div>
 
-        <div className="flex justify-between items-center">
+        <div className="hidden lg:flex justify-between items-center">
           <div className="flex items-center gap-4">
             <div className="flex gap-1 bg-white p-1 rounded-xl border border-slate-200 shadow">
               <button onClick={() => setViewMode('personal')} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${viewMode === 'personal' ? 'bg-blue-600 text-white shadow' : 'text-slate-600 hover:text-slate-900'}`}>MY</button>
@@ -377,7 +377,7 @@ export default function SchedulerPage() {
 
         {viewMode === 'personal' ? (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            <aside className="order-2 lg:order-1 lg:col-span-3 space-y-6">
+            <aside className="hidden lg:block order-2 lg:order-1 lg:col-span-3 space-y-6">
               <div className="bg-white p-6 rounded-2xl border border-blue-200 space-y-4 shadow">
                 <h3 className="text-xs font-black text-blue-700 uppercase tracking-widest">국가근로 설정</h3>
                 <label className="block space-y-2">
@@ -602,6 +602,73 @@ export default function SchedulerPage() {
               </div>
 
               <div className="space-y-6">
+                <section className="bg-white rounded-3xl border border-blue-200 p-5 shadow-sm space-y-4">
+                  <h3 className="text-sm font-black text-blue-700">국가근로 설정</h3>
+                  <label className="block space-y-2">
+                    <span className="text-xs font-bold text-slate-600">학기 종료일</span>
+                    <input
+                      type="date"
+                      value={state.semesterEndDate}
+                      onChange={(e) => saveState({ semesterEndDate: e.target.value })}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm"
+                    />
+                  </label>
+                  <label className="block space-y-2">
+                    <span className="text-xs font-bold text-slate-600">집중근로</span>
+                    <select
+                      value={state.intensiveWork ? 'yes' : 'no'}
+                      onChange={(e) => saveState({ intensiveWork: e.target.value === 'yes' })}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm"
+                    >
+                      <option value="no">무 · 월 80시간 / 주 40시간</option>
+                      <option value="yes">유 · 주 40시간</option>
+                    </select>
+                  </label>
+                  {state.intensiveWork && (
+                    <label className="block space-y-2">
+                      <span className="text-xs font-bold text-slate-600">집중근로 시작일</span>
+                      <input
+                        type="date"
+                        value={state.intensiveStartDate}
+                        onChange={(e) => saveState({ intensiveStartDate: e.target.value })}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm"
+                      />
+                    </label>
+                  )}
+                  <label className="block space-y-2">
+                    <span className="text-xs font-bold text-slate-600">근로 유형</span>
+                    <select
+                      value={state.workplaceType}
+                      onChange={(e) => saveState({ workplaceType: e.target.value })}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm"
+                    >
+                      <option value="onCampus">교내근로 · 10,320원</option>
+                      <option value="offCampus">교외근로 · 12,790원</option>
+                    </select>
+                  </label>
+                </section>
+
+                <section className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-4">
+                  <h3 className="text-sm font-black">요일별 기본시간</h3>
+                  <div className="grid grid-cols-1 gap-2">
+                    {DAYS_KOREAN.map((day, idx) => (
+                      <label key={day} className="flex min-h-12 items-center justify-between rounded-xl bg-slate-50 px-4">
+                        <span className={`text-sm font-bold ${idx === 0 ? 'text-red-600' : idx === 6 ? 'text-blue-600' : 'text-slate-700'}`}>{day}요일</span>
+                        <input
+                          aria-label={`${day}요일 기본 근무시간`}
+                          type="number"
+                          step="0.5"
+                          min="0"
+                          max={MAX_DAILY_HOURS}
+                          value={state.defaults[idx]}
+                          onChange={(e) => saveState({ defaults: { ...state.defaults, [idx]: clampHours(e.target.value) } })}
+                          className="w-20 rounded-lg border border-slate-300 bg-white px-3 py-2 text-center text-sm font-bold"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </section>
+
                 <section className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-4">
                   <h3 className="text-sm font-black">날짜 선택</h3>
                   <div className="grid grid-cols-2 gap-3">
