@@ -13,6 +13,8 @@ let environment;
 const schedule = (ownerUid) => ({
   ownerUid,
   legacyId: null,
+  semesterEndDate: '2026-06-30',
+  workplaceType: 'offCampus',
   name: '테스트 사용자',
   defaults: { 0: 0, 1: 8, 2: 8, 3: 8, 4: 8, 5: 8, 6: 0 },
   exceptions: {},
@@ -58,5 +60,17 @@ test('unexpected fields such as email are rejected', async () => {
   await assertFails(setDoc(doc(database, 'schedules', 'alice'), {
     ...schedule('alice'),
     email: 'alice@example.com',
+  }));
+});
+
+test('invalid national work-study settings are rejected', async () => {
+  const database = environment.authenticatedContext('alice').firestore();
+  await assertFails(setDoc(doc(database, 'schedules', 'alice'), {
+    ...schedule('alice'),
+    workplaceType: 'private',
+  }));
+  await assertFails(setDoc(doc(database, 'schedules', 'alice'), {
+    ...schedule('alice'),
+    semesterEndDate: 20260731,
   }));
 });

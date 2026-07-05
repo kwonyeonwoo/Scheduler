@@ -7,9 +7,11 @@ import {
   DAYS_KOREAN,
   EMPTY_SCHEDULE,
   MAX_DAILY_HOURS,
+  SEMESTER_MAX_HOURS,
+  TERM_WEEKLY_HOURS,
+  VACATION_WEEKLY_HOURS,
   calculateMonth,
   clampHours,
-  getAdjustedHours,
   normalizeSchedule,
 } from './lib/schedule';
 import { 
@@ -43,6 +45,12 @@ export default function SchedulerPage() {
   const [selectedDay, setSelectedDay] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [viewMode, setViewMode] = useState('personal');
+  const [rangeStart, setRangeStart] = useState('');
+  const [rangeEnd, setRangeEnd] = useState('');
+  const [rangeHours, setRangeHours] = useState(8);
+  const [rangeStartTime, setRangeStartTime] = useState('09:00');
+  const [rangeLunch, setRangeLunch] = useState('1.0');
+  const [weekdaysOnly, setWeekdaysOnly] = useState(true);
 
   // 1. Auth Sync
   useEffect(() => {
@@ -246,6 +254,35 @@ export default function SchedulerPage() {
     return saveQueueRef.current;
   };
 
+  const applyDateRange = (asOff = false) => {
+    if (!rangeStart || !rangeEnd || rangeStart > rangeEnd) {
+      setSyncError('시작일과 종료일을 올바르게 선택해 주세요.');
+      return;
+    }
+
+    const exceptions = { ...state.exceptions };
+    const startExceptions = { ...state.startExceptions };
+    const lunchExceptions = { ...state.lunchExceptions };
+    const cursor = new Date(`${rangeStart}T00:00:00`);
+    const end = new Date(`${rangeEnd}T00:00:00`);
+    let applied = 0;
+
+    while (cursor <= end && applied < 120) {
+      const dayOfWeek = cursor.getDay();
+      if (!weekdaysOnly || (dayOfWeek !== 0 && dayOfWeek !== 6)) {
+        const dateKey = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`;
+        exceptions[dateKey] = asOff ? 0 : clampHours(rangeHours);
+        startExceptions[dateKey] = rangeStartTime;
+        lunchExceptions[dateKey] = rangeLunch;
+        applied += 1;
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    saveState({ exceptions, startExceptions, lunchExceptions });
+    setSyncError('');
+  };
+
   if (!isFirebaseConfigured) {
     return (
       <div className="min-h-screen bg-[#0d1117] text-slate-200 flex items-center justify-center p-6">
@@ -316,6 +353,7 @@ export default function SchedulerPage() {
           <div className="bg-blue-500/5 rounded-2xl border border-blue-500/10 p-4 flex flex-col items-center justify-center text-center">
             <span className="text-[10px] font-black text-blue-500/70 uppercase mb-1">Estimated Wage</span>
             <div className="text-2xl font-black text-blue-400 tracking-tighter">₩ {calendarData.totalWage.toLocaleString()}</div>
+            <div className="text-[9px] text-slate-600 mt-1">시급 ₩{calendarData.hourlyWage.toLocaleString()}</div>
           </div>
         </div>
 
@@ -338,8 +376,37 @@ export default function SchedulerPage() {
         {viewMode === 'personal' ? (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <aside className="lg:col-span-3 space-y-6">
+              <div className="bg-slate-900/40 p-6 rounded-2xl border border-blue-900/50 space-y-4 shadow-xl">
+                <h3 className="text-xs font-black text-blue-400 uppercase tracking-widest">국가근로 설정</h3>
+                <label className="block space-y-2">
+                  <span className="text-[10px] font-bold text-slate-500">학기 종료일</span>
+                  <input
+                    type="date"
+                    value={state.semesterEndDate}
+                    onChange={(e) => saveState({ semesterEndDate: e.target.value })}
+                    className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-xs focus:border-blue-500 outline-none"
+                  />
+                </label>
+                <label className="block space-y-2">
+                  <span className="text-[10px] font-bold text-slate-500">근로 유형</span>
+                  <select
+                    value={state.workplaceType}
+                    onChange={(e) => saveState({ workplaceType: e.target.value })}
+                    className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-xs focus:border-blue-500 outline-none"
+                  >
+                    <option value="onCampus">교내근로 · 10,320원</option>
+                    <option value="offCampus">교외근로 · 12,790원</option>
+                  </select>
+                </label>
+                <div className="rounded-xl bg-blue-950/20 border border-blue-900/30 p-3 text-[10px] leading-5 text-slate-400">
+                  1일 8시간 · 월 80시간<br />
+                  학기중 주 {TERM_WEEKLY_HOURS}시간 · 방학중 주 {VACATION_WEEKLY_HOURS}시간<br />
+                  학기당 최대 {SEMESTER_MAX_HOURS}시간
+                </div>
+              </div>
+
               <div className="bg-slate-900/40 p-6 rounded-2xl border border-slate-800 space-y-4 shadow-xl">
-                <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">Weekly Defaults</h3>
+                <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">요일별 기본시간</h3>
                 <div className="space-y-3">
                   {DAYS_KOREAN.map((day, idx) => (
                     <div key={day} className="flex items-center justify-between">
@@ -356,6 +423,46 @@ export default function SchedulerPage() {
                       />
                     </div>
                   ))}
+                </div>
+              </div>
+
+              <div className="bg-slate-900/40 p-6 rounded-2xl border border-slate-800 space-y-4 shadow-xl">
+                <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">빠른 일정 입력</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="space-y-1">
+                    <span className="text-[9px] text-slate-600">시작일</span>
+                    <input type="date" value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-2 py-2 text-[10px]" />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-[9px] text-slate-600">종료일</span>
+                    <input type="date" value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-2 py-2 text-[10px]" />
+                  </label>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <label className="space-y-1">
+                    <span className="text-[9px] text-slate-600">시간</span>
+                    <input type="number" min="0" max="8" step="0.5" value={rangeHours} onChange={(e) => setRangeHours(clampHours(e.target.value))} className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-2 py-2 text-[10px]" />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-[9px] text-slate-600">시작</span>
+                    <input type="time" value={rangeStartTime} onChange={(e) => setRangeStartTime(e.target.value)} className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-2 py-2 text-[10px]" />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-[9px] text-slate-600">휴게</span>
+                    <select value={rangeLunch} onChange={(e) => setRangeLunch(e.target.value)} className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-2 py-2 text-[10px]">
+                      <option value="0">없음</option>
+                      <option value="0.5">30분</option>
+                      <option value="1.0">1시간</option>
+                    </select>
+                  </label>
+                </div>
+                <label className="flex items-center gap-2 text-[10px] text-slate-500">
+                  <input type="checkbox" checked={weekdaysOnly} onChange={(e) => setWeekdaysOnly(e.target.checked)} />
+                  평일에만 적용
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => applyDateRange(false)} className="rounded-xl bg-blue-600 py-2.5 text-[10px] font-black hover:bg-blue-500">근무 적용</button>
+                  <button type="button" onClick={() => applyDateRange(true)} className="rounded-xl bg-slate-800 py-2.5 text-[10px] font-black text-red-300 hover:bg-slate-700">휴무 적용</button>
                 </div>
               </div>
             </aside>
@@ -379,25 +486,18 @@ export default function SchedulerPage() {
                       {d && (
                         <>
                           <span className={`absolute top-3 left-4 text-[11px] font-black ${d.holidayName || d.dayOfWeek === 0 ? 'text-red-500/80' : d.dayOfWeek === 6 ? 'text-blue-500/60' : 'text-slate-500'}`}>{d.day}</span>
-                          {d.effectiveHours > 0 ? (
+                          {d.hours > 0 ? (
                             <div className="text-center">
-                              <div className={`text-sm md:text-lg font-black ${d.type === 'default' ? 'text-blue-400' : d.type === 'exception' ? 'text-purple-400' : 'text-emerald-400'}`}>
-                                {Number(d.effectiveHours).toFixed(1)}
+                              <div className={`text-sm md:text-lg font-black ${d.effectiveHours < d.hours ? 'text-amber-400' : d.type === 'default' ? 'text-blue-400' : 'text-purple-400'}`}>
+                                {Number(d.hours).toFixed(1)}
                               </div>
                               {d.effectiveHours < d.hours && (
-                                <div className="text-[8px] font-black text-amber-500 uppercase tracking-tighter leading-none mb-1">Suspend</div>
+                                <div className="text-[8px] font-bold text-amber-500 tracking-tighter leading-none mb-1">인정 {Number(d.effectiveHours).toFixed(1)}h</div>
                               )}
-                              <div className="text-[9px] text-slate-600 font-bold">{d.start} ~ {d.end}</div>
+                              <div className="text-[9px] text-slate-600 font-bold">{d.start}{d.end ? ` ~ ${d.end}` : ''}</div>
                             </div>
                           ) : (
-                            d.hours > 0 ? (
-                              <div className="text-center opacity-40">
-                                <div className="text-xs font-black text-red-500 uppercase tracking-tighter">Limit</div>
-                                <div className="text-[8px] text-slate-700 font-bold line-through">{d.hours.toFixed(1)}h</div>
-                              </div>
-                            ) : (
-                              d.holidayName && <div className="text-[10px] font-black text-red-500/40 uppercase tracking-tighter mt-4">Holiday</div>
-                            )
+                            d.holidayName && <div className="text-[10px] font-black text-red-500/40 uppercase tracking-tighter mt-4">Holiday</div>
                           )}
                         </>
                       )}
@@ -450,14 +550,14 @@ export default function SchedulerPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-300">
             <div className="bg-[#161b22] w-full max-w-sm rounded-[3rem] border border-slate-700 p-10 shadow-2xl space-y-8">
               <div className="text-center space-y-1">
-                <h3 className="text-2xl font-black text-blue-400 tracking-tighter">Edit Schedule</h3>
+                <h3 className="text-2xl font-black text-blue-400 tracking-tighter">일정 수정</h3>
                 <p className="text-slate-500 font-bold">{selectedDay.dateKey}</p>
               </div>
               <form onSubmit={(e) => {
                 e.preventDefault();
                 const fd = new FormData(e.currentTarget);
                 const inputH = fd.get('type') === 'off' ? 0 : Number(fd.get('hours')) || 0;
-                const finalH = getAdjustedHours(state, selectedDay.dateKey, inputH, getHoliday);
+                const finalH = clampHours(inputH);
                 saveState({
                   exceptions: { ...state.exceptions, [selectedDay.dateKey]: finalH },
                   startExceptions: { ...state.startExceptions, [selectedDay.dateKey]: fd.get('start') },
@@ -466,21 +566,37 @@ export default function SchedulerPage() {
                 setSelectedDay(null);
               }} className="space-y-6">
                 <div className="flex gap-2 p-1.5 bg-slate-900 rounded-2xl border border-slate-800">
-                  <label className="flex-1"><input type="radio" name="type" value="work" defaultChecked={selectedDay.hours > 0} className="peer hidden" /><div className="text-center py-2.5 rounded-xl text-xs font-black cursor-pointer peer-checked:bg-blue-600 peer-checked:text-white text-slate-600 transition-all">Work</div></label>
-                  <label className="flex-1"><input type="radio" name="type" value="off" defaultChecked={selectedDay.hours === 0} className="peer hidden" /><div className="text-center py-2.5 rounded-xl text-xs font-black cursor-pointer peer-checked:bg-red-600 peer-checked:text-white text-slate-600 transition-all">Off</div></label>
+                  <label className="flex-1"><input type="radio" name="type" value="work" defaultChecked={selectedDay.hours > 0} className="peer hidden" /><div className="text-center py-2.5 rounded-xl text-xs font-black cursor-pointer peer-checked:bg-blue-600 peer-checked:text-white text-slate-600 transition-all">근무</div></label>
+                  <label className="flex-1"><input type="radio" name="type" value="off" defaultChecked={selectedDay.hours === 0} className="peer hidden" /><div className="text-center py-2.5 rounded-xl text-xs font-black cursor-pointer peer-checked:bg-red-600 peer-checked:text-white text-slate-600 transition-all">휴무</div></label>
                 </div>
                 <div className="space-y-5">
-                  <input name="hours" type="number" step="0.5" min="0" max={MAX_DAILY_HOURS} defaultValue={selectedDay.hours || 8} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold shadow-inner" placeholder="Daily Hours" />
+                  <input name="hours" type="number" step="0.5" min="0" max={MAX_DAILY_HOURS} defaultValue={selectedDay.hours} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold shadow-inner" placeholder="근무시간" />
                   <div className="grid grid-cols-2 gap-4">
                     <input name="start" type="time" defaultValue={selectedDay.start} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold shadow-inner" />
-                    <select name="lunch" defaultValue={selectedDay.lunch} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold appearance-none shadow-inner"><option value="0">None</option><option value="0.5">30m</option><option value="1.0">1h</option></select>
+                    <select name="lunch" defaultValue={selectedDay.lunch} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none font-bold appearance-none shadow-inner"><option value="0">휴게 없음</option><option value="0.5">30분</option><option value="1.0">1시간</option></select>
                   </div>
                 </div>
                 <div className="flex gap-4 pt-4">
-                  <button type="button" onClick={() => setSelectedDay(null)} className="flex-1 py-4 rounded-2xl bg-slate-800 font-black text-xs uppercase hover:bg-slate-700 transition-all">Cancel</button>
-                  <button type="submit" className="flex-1 py-4 rounded-2xl bg-blue-600 font-black text-xs uppercase hover:bg-blue-500 text-white transition-all shadow-xl shadow-blue-900/20">Save</button>
+                  <button type="button" onClick={() => setSelectedDay(null)} className="flex-1 py-4 rounded-2xl bg-slate-800 font-black text-xs hover:bg-slate-700 transition-all">취소</button>
+                  <button type="submit" className="flex-1 py-4 rounded-2xl bg-blue-600 font-black text-xs hover:bg-blue-500 text-white transition-all shadow-xl shadow-blue-900/20">저장</button>
                 </div>
               </form>
+              <button
+                type="button"
+                onClick={() => {
+                  const exceptions = { ...state.exceptions };
+                  const startExceptions = { ...state.startExceptions };
+                  const lunchExceptions = { ...state.lunchExceptions };
+                  delete exceptions[selectedDay.dateKey];
+                  delete startExceptions[selectedDay.dateKey];
+                  delete lunchExceptions[selectedDay.dateKey];
+                  saveState({ exceptions, startExceptions, lunchExceptions });
+                  setSelectedDay(null);
+                }}
+                className="w-full text-[10px] font-bold text-slate-500 hover:text-slate-300"
+              >
+                요일별 기본시간으로 되돌리기
+              </button>
             </div>
           </div>
         )}

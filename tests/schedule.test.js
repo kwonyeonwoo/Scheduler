@@ -3,10 +3,13 @@ import assert from 'node:assert/strict';
 
 import {
   MAX_MONTHLY_HOURS,
+  TERM_WEEKLY_HOURS,
+  VACATION_WEEKLY_HOURS,
+  WAGES,
   calculateMonth,
   clampHours,
-  getAdjustedHours,
   getEndTime,
+  getWeeklyLimit,
   normalizeSchedule,
 } from '../app/lib/schedule.js';
 import { getHoliday } from '../app/lib/holidays.js';
@@ -20,6 +23,7 @@ test('clampHours rejects invalid, negative, over-limit, and non-half-hour values
 
 test('calculateMonth caps monthly work chronologically at 80 hours', () => {
   const schedule = normalizeSchedule({
+    semesterEndDate: '2026-06-30',
     defaults: { 0: 0, 1: 8, 2: 8, 3: 8, 4: 8, 5: 8, 6: 0 },
   });
   const result = calculateMonth(schedule, new Date(2026, 6, 1));
@@ -29,6 +33,7 @@ test('calculateMonth caps monthly work chronologically at 80 hours', () => {
 
 test('calculateMonth uses effective capped hours to calculate end time', () => {
   const schedule = normalizeSchedule({
+    semesterEndDate: '2026-06-30',
     defaults: { 0: 0, 1: 8, 2: 8, 3: 8, 4: 8, 5: 8, 6: 0 },
     exceptions: { '2026-07-15': 7 },
     startExceptions: { '2026-07-15': '09:00' },
@@ -51,12 +56,70 @@ test('holidays are excluded unless the user explicitly overrides them', () => {
   assert.equal(overridden.days.find((day) => day?.dateKey === '2026-07-06').effectiveHours, 4);
 });
 
-test('getAdjustedHours respects daily and remaining monthly limits', () => {
+test('term and vacation weeks use the national work-study weekly limits', () => {
   const schedule = normalizeSchedule({
-    defaults: { 0: 0, 1: 8, 2: 8, 3: 8, 4: 8, 5: 8, 6: 0 },
+    semesterEndDate: '2026-07-15',
+    defaults: { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
+    exceptions: {
+      '2026-07-06': 8, '2026-07-07': 8, '2026-07-08': 8,
+      '2026-07-20': 8, '2026-07-21': 8, '2026-07-22': 8,
+      '2026-07-23': 8, '2026-07-24': 8,
+    },
   });
-  assert.equal(getAdjustedHours(schedule, '2026-07-31', 20), 0);
-  assert.equal(getAdjustedHours(schedule, '2026-07-01', 20), 8);
+  assert.equal(getWeeklyLimit(schedule, '2026-07-15'), TERM_WEEKLY_HOURS);
+  assert.equal(getWeeklyLimit(schedule, '2026-07-16'), VACATION_WEEKLY_HOURS);
+
+  const result = calculateMonth(schedule, new Date(2026, 6, 1));
+  const termWeek = result.days.filter((day) => day?.dateKey >= '2026-07-06' && day?.dateKey <= '2026-07-12');
+  const vacationWeek = result.days.filter((day) => day?.dateKey >= '2026-07-20' && day?.dateKey <= '2026-07-26');
+  assert.equal(termWeek.reduce((sum, day) => sum + day.effectiveHours, 0), 20);
+  assert.equal(vacationWeek.reduce((sum, day) => sum + day.effectiveHours, 0), 40);
+});
+
+test('the requested 6-10, 13-16, and 25 pattern preserves all 80 entered hours', () => {
+  const workDates = [
+    '2026-07-06', '2026-07-07', '2026-07-08', '2026-07-09', '2026-07-10',
+    '2026-07-13', '2026-07-14', '2026-07-15', '2026-07-16',
+    '2026-07-25',
+  ];
+  const schedule = normalizeSchedule({
+    semesterEndDate: '2026-06-30',
+    defaults: { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
+    exceptions: Object.fromEntries(workDates.map((dateKey) => [dateKey, 8])),
+  });
+  const result = calculateMonth(schedule, new Date(2026, 6, 1));
+  const day25 = result.days.find((day) => day?.dateKey === '2026-07-25');
+
+  assert.equal(result.totalAccHours, 80);
+  assert.equal(day25.hours, 8);
+  assert.equal(day25.effectiveHours, 8);
+});
+
+test('requested hours remain visible even when a statutory cap reduces recognized hours', () => {
+  const schedule = normalizeSchedule({
+    semesterEndDate: '2026-06-30',
+    defaults: { 0: 0, 1: 8, 2: 8, 3: 8, 4: 8, 5: 8, 6: 0 },
+    exceptions: { '2026-07-31': 8 },
+  });
+  const result = calculateMonth(schedule, new Date(2026, 6, 1));
+  const day31 = result.days.find((day) => day?.dateKey === '2026-07-31');
+
+  assert.equal(result.totalAccHours, 80);
+  assert.equal(day31.hours, 8);
+  assert.equal(day31.effectiveHours, 0);
+});
+
+test('estimated wage follows the selected 2026 on-campus or off-campus rate', () => {
+  const base = {
+    defaults: { 0: 0, 1: 8, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
+  };
+  const onCampus = calculateMonth(normalizeSchedule({ ...base, workplaceType: 'onCampus' }), new Date(2026, 6, 1));
+  const offCampus = calculateMonth(normalizeSchedule({ ...base, workplaceType: 'offCampus' }), new Date(2026, 6, 1));
+
+  assert.equal(onCampus.hourlyWage, WAGES.onCampus);
+  assert.equal(offCampus.hourlyWage, WAGES.offCampus);
+  assert.equal(onCampus.totalWage, onCampus.totalAccHours * WAGES.onCampus);
+  assert.equal(offCampus.totalWage, offCampus.totalAccHours * WAGES.offCampus);
 });
 
 test('future Korean lunar holidays are calculated beyond the old 2026 table', () => {
