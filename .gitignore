@@ -2,7 +2,9 @@ node_modules
 .next
 out
 build
-.env*.local
+.env
+.env.*
+!.env.example
 .DS_Store
 .playwright-cli
 output
